@@ -2,18 +2,18 @@ use std::collections::{HashMap, VecDeque};
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
 pub struct Point {
-    x: i32,
-    y: i32,
+    x: i16,
+    y: i16,
 }
 
 impl Point {
-    pub fn new(x: i32, y: i32) -> Point {
+    pub fn new(x: i16, y: i16) -> Point {
         Point { x, y }
     }
 }
 
 pub struct PathfindingGrid {
-    grid: Vec<Vec<i32>>,
+    grid: Vec<Vec<i16>>,
 }
 
 impl PathfindingGrid {
@@ -24,8 +24,8 @@ impl PathfindingGrid {
         frontier.push_back(from);
         seen_from.insert(from, from);
 
-        let x_size = self.grid.len() as i32;
-        let y_size = self.grid[0].len() as i32;
+        let x_size = self.grid.len() as i16;
+        let y_size = self.grid[0].len() as i16;
 
         while !frontier.is_empty() {
             let popped = frontier.pop_front();
@@ -76,13 +76,13 @@ impl PathfindingGrid {
 }
 
 struct Direction {
-    mask: i32,
-    dx: i32,
-    dy: i32,
+    mask: i16,
+    dx: i16,
+    dy: i16,
 }
 
 impl Direction {
-    const fn new(mask: i32, dx: i32, dy: i32) -> Direction {
+    const fn new(mask: i16, dx: i16, dy: i16) -> Direction {
         Direction { mask, dx, dy }
     }
 }
@@ -98,15 +98,15 @@ const SW: Direction = Direction::new(1 << 7, -1, -1);
 
 const DIRECTIONS: [Direction; 8] = [N, S, E, W, NE, NW, SE, SW];
 
-fn chebychev(from: Point, to: Point) -> i32 {
-    let x = (from.x - to.x).abs();
-    let y = (from.y - to.y).abs();
-    if x > y {
-        x
-    } else {
-        y
-    }
-}
+// fn chebychev(from: Point, to: Point) -> i16 {
+//     let x = (from.x - to.x).abs();
+//     let y = (from.y - to.y).abs();
+//     if x > y {
+//         x
+//     } else {
+//         y
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_pathfind() {
-        let grid = vec![vec![std::i32::MAX; 10]; 10];
+        let grid = vec![vec![std::i16::MAX; 10]; 10];
 
         let pathfinding_grid = PathfindingGrid { grid };
 
@@ -128,17 +128,16 @@ mod tests {
         assert_eq!(path.unwrap().len(), 9);
     }
 
-    #[test]
-    fn test_chebychev() {
-        print!("idk");
-        let from = Point { x: 0, y: 0 };
-        let to = Point { x: 3, y: 4 };
-        let result = chebychev(from, to);
-        assert_eq!(result, 4);
-
-        let from = Point { x: 0, y: 0 };
-        let to = Point { x: 3, y: -4 };
-        let result = chebychev(from, to);
-        assert_eq!(result, 4);
-    }
+    // #[test]
+    // fn test_chebychev() {
+    //     let from = Point { x: 0, y: 0 };
+    //     let to = Point { x: 3, y: 4 };
+    //     let result = chebychev(from, to);
+    //     assert_eq!(result, 4);
+    //
+    //     let from = Point { x: 0, y: 0 };
+    //     let to = Point { x: 3, y: -4 };
+    //     let result = chebychev(from, to);
+    //     assert_eq!(result, 4);
+    // }
 }
