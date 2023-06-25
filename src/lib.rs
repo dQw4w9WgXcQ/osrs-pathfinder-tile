@@ -1,143 +1,244 @@
-use std::collections::{HashMap, VecDeque};
+use std::cmp::max;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
+pub struct PathfindingGrid {
+    grid: Vec<Vec<i8>>,
+}
+
+impl PathfindingGrid {
+    pub fn new(grid: Vec<Vec<i8>>) -> PathfindingGrid {
+        PathfindingGrid { grid }
+    }
+
+    /**
+     * uses A*.  exclusive of origin, inclusive of destination.
+     * can panic if the grid boundary is not padded.
+     */
+    pub fn find_path(&self, origin: &Point, destination: &Point) -> Option<Vec<Point>> {
+        let mut open = BinaryHeap::new();
+        let mut closed = HashSet::new();
+        let mut g_costs = HashMap::new();
+        let mut came_from = HashMap::new();
+
+        open.push(Node::create(destination, *origin, 0));
+
+        loop {
+            let curr = open.pop();
+            if curr.is_none() {
+                println!("no path found");
+                return None;
+            }
+
+            let curr = curr.unwrap();
+
+            if curr.point == *destination {
+                println!("\n\nfound path");
+
+                let mut path = Vec::new();
+                let mut curr = curr.point;
+                while curr != *origin {
+                    println!("path {:?} {:?}", curr.x, curr.y);
+                    path.push(curr);
+                    let next = came_from.get(&curr).unwrap();
+                    curr = *next;
+                }
+
+                path.reverse();
+                return Some(path);
+            }
+
+            println!("\ncurr:{:?},{:?}", curr.point.x, curr.point.y);
+            println!("cost:{:?} h:{:?} g:{:?}", curr.cost, curr.h_cost, curr.g_cost);
+
+            if closed.contains(&curr.point) {
+                //There can be duplicate nodes for a point with updated g_cost.
+                println!("already closed");
+                continue;
+            }
+
+            for dir in BLOCKED_FLAGS {
+                if self.grid[curr.point.x as usize][curr.point.y as usize] & dir.config != 0 {
+                    println!("blocked {:?}", dir.config);
+                    continue;
+                }
+
+                let adj_x = curr.point.x + dir.dx;
+                let adj_y = curr.point.y + dir.dy;
+
+                //todo remove later.  our grid's boundary is expected to be padded.
+                if adj_x < 0 || adj_y < 0 || adj_x >= self.grid.len() as i32 || adj_y >= self.grid[0].len() as i32 {
+                    continue;
+                }
+
+                println!("adj:{},{}", adj_x, adj_y);
+
+                let adj = Point::new(adj_x, adj_y);
+                let next_g_cost = curr.g_cost + 1;
+
+                let old_g_cost = g_costs.get(&adj);
+                if old_g_cost.is_some() && next_g_cost >= *old_g_cost.unwrap() {
+                    continue;
+                }
+
+                g_costs.insert(adj, next_g_cost);
+                came_from.insert(adj, curr.point);
+
+                let next = Node::create(destination, adj, next_g_cost);
+
+                open.push(next);
+            }
+
+            closed.insert(curr.point);
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Point {
-    x: i16,
-    y: i16,
+    x: i32,
+    y: i32,
 }
 
 impl Point {
-    pub fn new(x: i16, y: i16) -> Point {
+    pub fn new(x: i32, y: i32) -> Point {
         Point { x, y }
     }
 }
 
-pub struct PathfindingGrid {
-    grid: Vec<Vec<i16>>,
+#[derive(PartialEq, Eq)]
+struct Node {
+    point: Point,
+    cost: i32,
+    h_cost: i32,
+    g_cost: i32,
 }
 
-impl PathfindingGrid {
-    pub fn find_path(&self, from: Point, to: Point) -> Option<Vec<Point>> {
-        let mut seen_from: HashMap<Point, Point> = HashMap::new();
-        let mut frontier: VecDeque<Point> = VecDeque::new();
-
-        frontier.push_back(from);
-        seen_from.insert(from, from);
-
-        let x_size = self.grid.len() as i16;
-        let y_size = self.grid[0].len() as i16;
-
-        while !frontier.is_empty() {
-            let popped = frontier.pop_front();
-            if popped.is_none() {
-                return None;
-            }
-
-            let current = popped.unwrap();
-
-            if current == to {
-                return Some(PathfindingGrid::backtrack(seen_from, current));
-            }
-
-            let config = self.grid[current.x as usize][current.y as usize];
-
-            for dir in DIRECTIONS {
-                if config & dir.mask != 0 {
-                    let x = current.x + dir.dx;
-                    let y = current.y + dir.dy;
-                    if x < 0 || x >= x_size || y < 0 || y >= y_size {
-                        continue;
-                    }
-
-                    let next = Point::new(x, y);
-
-                    if !seen_from.contains_key(&next) {
-                        frontier.push_back(next);
-                        seen_from.insert(next, current);
-                    }
-                }
-            }
-        }
-
-        return None;
+impl Node {
+    fn new(point: Point, cost: i32, h_cost: i32, g_cost: i32) -> Node {
+        Node { point, cost, h_cost, g_cost }
     }
 
-    fn backtrack(seen_from: HashMap<Point, Point>, end: Point) -> Vec<Point> {
-        let mut path: Vec<Point> = Vec::new();
-        let mut current = end;
-        while current != seen_from[&current] {
-            path.push(current);
-            current = seen_from[&current];
-        }
-        path.push(current);
-        path.reverse();
-        path
+    fn create(destination: &Point, point: Point, g_cost: i32) -> Node {
+        let h_cost = chebychev(&point, destination);
+        Node::new(point, g_cost + h_cost, h_cost, g_cost)
     }
 }
 
-struct Direction {
-    mask: i16,
-    dx: i16,
-    dy: i16,
-}
-
-impl Direction {
-    const fn new(mask: i16, dx: i16, dy: i16) -> Direction {
-        Direction { mask, dx, dy }
+impl PartialOrd for Node {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cost.cmp(&other.cost).reverse())
     }
 }
 
-const N: Direction = Direction::new(1, 0, 1);
-const S: Direction = Direction::new(1 << 1, 0, -1);
-const E: Direction = Direction::new(1 << 2, 1, 0);
-const W: Direction = Direction::new(1 << 3, -1, 0);
-const NE: Direction = Direction::new(1 << 4, 1, 1);
-const NW: Direction = Direction::new(1 << 5, -1, 1);
-const SE: Direction = Direction::new(1 << 6, 1, -1);
-const SW: Direction = Direction::new(1 << 7, -1, -1);
+impl Ord for Node {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        return if self.cost == other.cost {
+            self.h_cost.cmp(&other.h_cost).reverse()
+        } else {
+            self.cost.cmp(&other.cost).reverse()
+        };
+    }
+}
 
-const DIRECTIONS: [Direction; 8] = [N, S, E, W, NE, NW, SE, SW];
+struct BlockedFlag {
+    config: i8,
+    dx: i32,
+    dy: i32,
+}
 
-// fn chebychev(from: Point, to: Point) -> i16 {
-//     let x = (from.x - to.x).abs();
-//     let y = (from.y - to.y).abs();
-//     if x > y {
-//         x
-//     } else {
-//         y
-//     }
-// }
+impl BlockedFlag {
+    const fn new(config: i8, dx: i32, dy: i32) -> BlockedFlag {
+        BlockedFlag { config, dx, dy }
+    }
+}
+
+const N: BlockedFlag = BlockedFlag::new(1, 0, 1);
+const S: BlockedFlag = BlockedFlag::new(1 << 1, 0, -1);
+const E: BlockedFlag = BlockedFlag::new(1 << 2, 1, 0);
+const W: BlockedFlag = BlockedFlag::new(1 << 3, -1, 0);
+const NE: BlockedFlag = BlockedFlag::new(1 << 4, 1, 1);
+const NW: BlockedFlag = BlockedFlag::new(1 << 5, -1, 1);
+const SE: BlockedFlag = BlockedFlag::new(1 << 6, 1, -1);
+const SW: BlockedFlag = BlockedFlag::new(1 << 7, -1, -1);
+
+const BLOCKED_FLAGS: [BlockedFlag; 8] = [N, S, E, W, NE, NW, SE, SW];
+
+/**
+ * used as the heuristic
+ */
+fn chebychev(from: &Point, to: &Point) -> i32 {
+    let dx = (from.x - to.x).abs();
+    let dy = (from.y - to.y).abs();
+    max(dx, dy)
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_pathfind() {
-        let grid = vec![vec![std::i16::MAX; 10]; 10];
+    fn test_find_path() {
+        let grid = vec![vec![0; 10]; 10];
+        let pathfinding_grid = PathfindingGrid::new(grid);
 
-        let pathfinding_grid = PathfindingGrid { grid };
+        let origin = Point::new(1, 1);
+        let destination = Point::new(9, 9);
 
-        let from = Point { x: 1, y: 1 };
+        let path: Option<Vec<Point>> = pathfinding_grid.find_path(&origin, &destination);
 
-        let to = Point { x: 9, y: 3 };
+        assert!(path.is_some());
+        assert_eq!(path.unwrap().len(), 8);
+    }
 
-        let path: Option<Vec<Point>> = pathfinding_grid.find_path(from, to);
+    #[test]
+    fn test_wall() {
+        let mut grid = vec![vec![0; 10]; 10];
+        grid[1][1] = NE.config;
+        let pathfinding_grid = PathfindingGrid::new(grid);
+
+        let origin = Point::new(1, 1);
+        let destination = Point::new(9, 9);
+
+        let path: Option<Vec<Point>> = pathfinding_grid.find_path(&origin, &destination);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 9);
     }
 
-    // #[test]
-    // fn test_chebychev() {
-    //     let from = Point { x: 0, y: 0 };
-    //     let to = Point { x: 3, y: 4 };
-    //     let result = chebychev(from, to);
-    //     assert_eq!(result, 4);
-    //
-    //     let from = Point { x: 0, y: 0 };
-    //     let to = Point { x: 3, y: -4 };
-    //     let result = chebychev(from, to);
-    //     assert_eq!(result, 4);
-    // }
+    #[test]
+    fn test_wall2() {
+        let mut grid = vec![vec![0; 10]; 10];
+        grid[1][1] = NE.config;
+        let pathfinding_grid = PathfindingGrid::new(grid);
+
+        let origin = Point::new(1, 1);
+        let destination = Point::new(9, 3);
+
+        let path: Option<Vec<Point>> = pathfinding_grid.find_path(&origin, &destination);
+
+        assert!(path.is_some());
+        assert_eq!(path.unwrap().len(), 8);
+    }
+
+    #[test]
+    fn test_no_path() {
+        let mut grid = vec![vec![0; 10]; 10];
+        grid[1][1] = N.config | S.config | E.config | W.config | NE.config | NW.config | SE.config | SW.config;
+        let pathfinding_grid = PathfindingGrid::new(grid);
+
+        let origin = Point::new(1, 1);
+        let destination = Point::new(9, 3);
+
+        let path: Option<Vec<Point>> = pathfinding_grid.find_path(&origin, &destination);
+
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn test_chebychev() {
+        let first = chebychev(&Point::new(0, 0), &Point::new(3, 4));
+        assert_eq!(first, 4);
+        let second = chebychev(&Point::new(0, 0), &Point::new(-3, 4));
+        assert_eq!(first, second);
+    }
 }
