@@ -1,6 +1,8 @@
 use std::cmp::max;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
+use log::debug;
+
 pub struct PathfindingGrid {
     grid: Vec<Vec<i8>>,
 }
@@ -11,10 +13,34 @@ impl PathfindingGrid {
     }
 
     /**
-     * uses A*.  exclusive of origin, inclusive of destination.
-     * can panic if the grid boundary is not padded.
+     * Uses A*.  Returns a path exclusive of origin, inclusive of destination.
+     * Err if origin or destination is out of bounds.
      */
-    pub fn find_path(&self, origin: &Point, destination: &Point) -> Option<Vec<Point>> {
+    pub fn find_path(
+        &self,
+        origin: &Point,
+        destination: &Point,
+    ) -> Result<Option<Vec<Point>>, String> {
+        if !self.in_bounds(origin.x, origin.y) {
+            return Err(format!(
+                "origin out of bounds: ({:?},{:?})",
+                origin.x, origin.y
+            ));
+        }
+
+        if !self.in_bounds(destination.x, destination.y) {
+            return Err(format!(
+                "destination out of bounds: ({:?},{:?}",
+                destination.x, destination.y
+            ));
+        }
+
+        let path = self.a_star(origin, destination);
+
+        Ok(path)
+    }
+
+    fn a_star(&self, origin: &Point, destination: &Point) -> Option<Vec<Point>> {
         let mut open = BinaryHeap::new();
         let mut closed = HashSet::new();
         let mut g_costs = HashMap::new();
@@ -25,19 +51,19 @@ impl PathfindingGrid {
         loop {
             let curr = open.pop();
             if curr.is_none() {
-                println!("no path found");
+                debug!("no path found");
                 return None;
             }
 
             let curr = curr.unwrap();
 
             if curr.point == *destination {
-                println!("found path");
+                debug!("found path");
 
                 let mut path = Vec::new();
                 let mut curr = curr.point;
                 while curr != *origin {
-                    println!("({:?},{:?}),", curr.x, curr.y);
+                    debug!("({:?},{:?}),", curr.x, curr.y);
                     path.push(curr);
                     let next = came_from.get(&curr).unwrap();
                     curr = *next;
@@ -47,49 +73,55 @@ impl PathfindingGrid {
                 return Some(path);
             }
 
-            println!("curr:{:?},{:?}", curr.point.x, curr.point.y);
-            println!(
+            debug!("curr:{:?},{:?}", curr.point.x, curr.point.y);
+            debug!(
                 "cost:{:?} h:{:?} g:{:?}",
                 curr.cost, curr.h_cost, curr.g_cost
             );
 
             if closed.contains(&curr.point) {
                 //There can be duplicate nodes for a point with updated g_cost.
-                println!("already closed");
+                debug!("already closed");
                 continue;
             }
 
-            for dir in BLOCKED_FLAGS {
-                if self.grid[curr.point.x as usize][curr.point.y as usize] & dir.config != 0 {
-                    println!("blocked {:?}", dir.config);
+            closed.insert(curr.point);
+
+            //might remove later.  not needed if the grid's boundary is padded and origin/destination are valid.
+            if !self.in_bounds(curr.point.x, curr.point.y) {
+                debug!("out of bounds");
+                continue;
+            }
+
+            //the compiler can infer x,y are in bounds, so no extra bounds checking happens.
+            //if in_bounds check is removed, convert to get_unchecked or the compiler will add bounds checking and no performance gain will be seen.
+            let config = self.grid[curr.point.x as usize][curr.point.y as usize];
+            debug!("config:{:?}", config);
+
+            for dir in BLOCKED_DIRS {
+                if config & dir.bitmask != 0 {
+                    debug!("blocked {:?}", dir.bitmask);
                     continue;
                 }
 
                 let adj_x = curr.point.x + dir.dx;
                 let adj_y = curr.point.y + dir.dy;
 
-                //todo remove later.  our grid's boundary is expected to be padded.
-                if adj_x < 0
-                    || adj_y < 0
-                    || adj_x >= self.grid.len() as i32
-                    || adj_y >= self.grid[0].len() as i32
-                {
-                    continue;
-                }
+                debug!("adj:{},{}", adj_x, adj_y);
 
-                println!("adj:{},{}", adj_x, adj_y);
-
+                //the adj can be out of bounds, but will be checked before use.
                 let adj = Point::new(adj_x, adj_y);
                 let next_g_cost = curr.g_cost + 1;
 
+                //also functions as a check for if adj is already closed.
                 let old_g_cost = g_costs.get(&adj);
                 if old_g_cost.is_some() {
                     if next_g_cost >= *old_g_cost.unwrap() {
-                        println!("have better g_cost");
+                        debug!("already have g_cost");
                         continue;
                     }
 
-                    println!("updating g_cost");
+                    debug!("updating g_cost");
                 }
 
                 g_costs.insert(adj, next_g_cost);
@@ -99,10 +131,11 @@ impl PathfindingGrid {
 
                 open.push(next);
             }
-
-            closed.insert(curr.point);
-            println!("closed:{:?},{:?}", curr.point.x, curr.point.y);
         }
+    }
+
+    fn in_bounds(&self, x: i32, y: i32) -> bool {
+        x >= 0 && y >= 0 && x < self.grid.len() as i32 && y < self.grid[0].len() as i32
     }
 }
 
@@ -158,29 +191,34 @@ impl Ord for Node {
     }
 }
 
-struct BlockedFlag {
-    config: i8,
+struct BlockedDir {
+    bitmask: i8,
     dx: i32,
     dy: i32,
 }
 
-impl BlockedFlag {
-    const fn new(config: i8, dx: i32, dy: i32) -> BlockedFlag {
-        BlockedFlag { config, dx, dy }
+impl BlockedDir {
+    const fn new(config: i8, dx: i32, dy: i32) -> BlockedDir {
+        BlockedDir {
+            bitmask: config,
+            dx,
+            dy,
+        }
     }
 }
 
-const N: BlockedFlag = BlockedFlag::new(1, 0, 1);
-const S: BlockedFlag = BlockedFlag::new(1 << 1, 0, -1);
-const E: BlockedFlag = BlockedFlag::new(1 << 2, 1, 0);
-const W: BlockedFlag = BlockedFlag::new(1 << 3, -1, 0);
-const NE: BlockedFlag = BlockedFlag::new(1 << 4, 1, 1);
-const NW: BlockedFlag = BlockedFlag::new(1 << 5, -1, 1);
-const SE: BlockedFlag = BlockedFlag::new(1 << 6, 1, -1);
-const SW: BlockedFlag = BlockedFlag::new(1 << 7, -1, -1);
+const N: BlockedDir = BlockedDir::new(1, 0, 1);
+const S: BlockedDir = BlockedDir::new(1 << 1, 0, -1);
+const E: BlockedDir = BlockedDir::new(1 << 2, 1, 0);
+const W: BlockedDir = BlockedDir::new(1 << 3, -1, 0);
+const NE: BlockedDir = BlockedDir::new(1 << 4, 1, 1);
+const NW: BlockedDir = BlockedDir::new(1 << 5, -1, 1);
+const SE: BlockedDir = BlockedDir::new(1 << 6, 1, -1);
+const SW: BlockedDir = BlockedDir::new(1 << 7, -1, -1);
 
-const BLOCKED_FLAGS: [BlockedFlag; 8] = [NE, NW, SE, SW, N, S, E, W];
+const BLOCKED_DIRS: [BlockedDir; 8] = [NE, NW, SE, SW, N, S, E, W];
 
+//heuristic
 fn chebychev(from: &Point, to: &Point) -> i32 {
     let dx = (from.x - to.x).abs();
     let dy = (from.y - to.y).abs();
@@ -199,7 +237,7 @@ mod tests {
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 9);
 
-        let path = pathfinding_grid.find_path(&origin, &destination);
+        let path = pathfinding_grid.a_star(&origin, &destination);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 8);
@@ -208,13 +246,13 @@ mod tests {
     #[test]
     fn test_wall() {
         let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = NE.config;
+        grid[1][1] = NE.bitmask;
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 9);
 
-        let path = pathfinding_grid.find_path(&origin, &destination);
+        let path = pathfinding_grid.a_star(&origin, &destination);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 9);
@@ -223,10 +261,10 @@ mod tests {
     #[test]
     fn test_wall2() {
         let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = NE.config;
+        grid[1][1] = NE.bitmask;
 
         for i in 2..8 {
-            grid[i][5] = NE.config | N.config | NW.config;
+            grid[i][5] = NE.bitmask | N.bitmask | NW.bitmask;
         }
 
         let pathfinding_grid = PathfindingGrid::new(grid);
@@ -234,7 +272,7 @@ mod tests {
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 9);
 
-        let path = pathfinding_grid.find_path(&origin, &destination);
+        let path = pathfinding_grid.a_star(&origin, &destination);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 11);
@@ -243,20 +281,20 @@ mod tests {
     #[test]
     fn test_no_path() {
         let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = N.config
-            | S.config
-            | E.config
-            | W.config
-            | NE.config
-            | NW.config
-            | SE.config
-            | SW.config;
+        grid[1][1] = N.bitmask
+            | S.bitmask
+            | E.bitmask
+            | W.bitmask
+            | NE.bitmask
+            | NW.bitmask
+            | SE.bitmask
+            | SW.bitmask;
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 3);
 
-        let path = pathfinding_grid.find_path(&origin, &destination);
+        let path = pathfinding_grid.a_star(&origin, &destination);
 
         assert!(path.is_none());
     }
