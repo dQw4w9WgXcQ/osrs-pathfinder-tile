@@ -32,12 +32,12 @@ impl PathfindingGrid {
             let curr = curr.unwrap();
 
             if curr.point == *destination {
-                println!("\n\nfound path");
+                println!("found path");
 
                 let mut path = Vec::new();
                 let mut curr = curr.point;
                 while curr != *origin {
-                    println!("path {:?} {:?}", curr.x, curr.y);
+                    println!("({:?},{:?}),", curr.x, curr.y);
                     path.push(curr);
                     let next = came_from.get(&curr).unwrap();
                     curr = *next;
@@ -47,8 +47,11 @@ impl PathfindingGrid {
                 return Some(path);
             }
 
-            println!("\ncurr:{:?},{:?}", curr.point.x, curr.point.y);
-            println!("cost:{:?} h:{:?} g:{:?}", curr.cost, curr.h_cost, curr.g_cost);
+            println!("curr:{:?},{:?}", curr.point.x, curr.point.y);
+            println!(
+                "cost:{:?} h:{:?} g:{:?}",
+                curr.cost, curr.h_cost, curr.g_cost
+            );
 
             if closed.contains(&curr.point) {
                 //There can be duplicate nodes for a point with updated g_cost.
@@ -66,7 +69,11 @@ impl PathfindingGrid {
                 let adj_y = curr.point.y + dir.dy;
 
                 //todo remove later.  our grid's boundary is expected to be padded.
-                if adj_x < 0 || adj_y < 0 || adj_x >= self.grid.len() as i32 || adj_y >= self.grid[0].len() as i32 {
+                if adj_x < 0
+                    || adj_y < 0
+                    || adj_x >= self.grid.len() as i32
+                    || adj_y >= self.grid[0].len() as i32
+                {
                     continue;
                 }
 
@@ -76,8 +83,13 @@ impl PathfindingGrid {
                 let next_g_cost = curr.g_cost + 1;
 
                 let old_g_cost = g_costs.get(&adj);
-                if old_g_cost.is_some() && next_g_cost >= *old_g_cost.unwrap() {
-                    continue;
+                if old_g_cost.is_some() {
+                    if next_g_cost >= *old_g_cost.unwrap() {
+                        println!("have better g_cost");
+                        continue;
+                    }
+
+                    println!("updating g_cost");
                 }
 
                 g_costs.insert(adj, next_g_cost);
@@ -89,6 +101,7 @@ impl PathfindingGrid {
             }
 
             closed.insert(curr.point);
+            println!("closed:{:?},{:?}", curr.point.x, curr.point.y);
         }
     }
 }
@@ -115,7 +128,12 @@ struct Node {
 
 impl Node {
     fn new(point: Point, cost: i32, h_cost: i32, g_cost: i32) -> Node {
-        Node { point, cost, h_cost, g_cost }
+        Node {
+            point,
+            cost,
+            h_cost,
+            g_cost,
+        }
     }
 
     fn create(destination: &Point, point: Point, g_cost: i32) -> Node {
@@ -161,11 +179,8 @@ const NW: BlockedFlag = BlockedFlag::new(1 << 5, -1, 1);
 const SE: BlockedFlag = BlockedFlag::new(1 << 6, 1, -1);
 const SW: BlockedFlag = BlockedFlag::new(1 << 7, -1, -1);
 
-const BLOCKED_FLAGS: [BlockedFlag; 8] = [N, S, E, W, NE, NW, SE, SW];
+const BLOCKED_FLAGS: [BlockedFlag; 8] = [NE, NW, SE, SW, N, S, E, W];
 
-/**
- * used as the heuristic
- */
 fn chebychev(from: &Point, to: &Point) -> i32 {
     let dx = (from.x - to.x).abs();
     let dy = (from.y - to.y).abs();
@@ -184,7 +199,7 @@ mod tests {
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 9);
 
-        let path: Option<Vec<Point>> = pathfinding_grid.find_path(&origin, &destination);
+        let path = pathfinding_grid.find_path(&origin, &destination);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 8);
@@ -199,7 +214,7 @@ mod tests {
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 9);
 
-        let path: Option<Vec<Point>> = pathfinding_grid.find_path(&origin, &destination);
+        let path = pathfinding_grid.find_path(&origin, &destination);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 9);
@@ -209,27 +224,39 @@ mod tests {
     fn test_wall2() {
         let mut grid = vec![vec![0; 10]; 10];
         grid[1][1] = NE.config;
+
+        for i in 2..8 {
+            grid[i][5] = NE.config | N.config | NW.config;
+        }
+
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
-        let destination = Point::new(9, 3);
+        let destination = Point::new(9, 9);
 
-        let path: Option<Vec<Point>> = pathfinding_grid.find_path(&origin, &destination);
+        let path = pathfinding_grid.find_path(&origin, &destination);
 
         assert!(path.is_some());
-        assert_eq!(path.unwrap().len(), 8);
+        assert_eq!(path.unwrap().len(), 11);
     }
 
     #[test]
     fn test_no_path() {
         let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = N.config | S.config | E.config | W.config | NE.config | NW.config | SE.config | SW.config;
+        grid[1][1] = N.config
+            | S.config
+            | E.config
+            | W.config
+            | NE.config
+            | NW.config
+            | SE.config
+            | SW.config;
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 3);
 
-        let path: Option<Vec<Point>> = pathfinding_grid.find_path(&origin, &destination);
+        let path = pathfinding_grid.find_path(&origin, &destination);
 
         assert!(path.is_none());
     }
