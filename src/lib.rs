@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use log::debug;
 
@@ -7,6 +7,7 @@ pub struct PathfindingGrid {
     grid: Vec<Vec<i8>>,
 }
 
+//TODO: better error types
 impl PathfindingGrid {
     pub fn new(grid: Vec<Vec<i8>>) -> PathfindingGrid {
         PathfindingGrid { grid }
@@ -40,13 +41,87 @@ impl PathfindingGrid {
         Ok(path)
     }
 
+    /**
+     * Uses BFS.  Returns a map of points to distances.
+     * Err if origin/destination is out of bounds or if a destination is unreachable.
+     */
+    pub fn find_distances(
+        &self,
+        origin: &Point,
+        destinations: HashSet<Point>,
+    ) -> Result<HashMap<Point, i32>, String> {
+        if !self.in_bounds(origin.x, origin.y) {
+            return Err(format!(
+                "origin out of bounds: ({:?},{:?})",
+                origin.x, origin.y
+            ));
+        }
+
+        let mut distances = HashMap::new();
+
+        let mut frontier = VecDeque::new();
+        let mut seen = HashSet::new();
+
+        frontier.push_back(*origin);
+
+        let mut distance = 0;
+
+        loop {
+            let curr = frontier.pop_front();
+            if curr.is_none() {
+                for destination in destinations {
+                    if !distances.contains_key(&destination) {
+                        return Err(format!(
+                            "no path to destination: ({:?},{:?})",
+                            destination.x, destination.y
+                        ));
+                    }
+                }
+
+                return Ok(distances);
+            }
+
+            let curr = curr.unwrap();
+
+            seen.insert(curr);
+
+            if destinations.contains(&curr) {
+                distances.insert(curr, distance);
+            }
+
+            if !self.in_bounds(curr.x, curr.y) {
+                continue;
+            }
+
+            let config = self.grid[curr.x as usize][curr.y as usize];
+            for dir in BLOCKED_DIRS {
+                if config & dir.bitmask != 0 {
+                    continue;
+                }
+
+                let adj_x = curr.x + dir.dx;
+                let adj_y = curr.y + dir.dy;
+
+                let adj = Point::new(adj_x, adj_y);
+
+                if seen.contains(&adj) {
+                    continue;
+                }
+
+                frontier.push_back(adj);
+            }
+
+            distance += 1;
+        }
+    }
+
     fn a_star(&self, origin: &Point, destination: &Point) -> Option<Vec<Point>> {
         let mut open = BinaryHeap::new();
         let mut closed = HashSet::new();
         let mut g_costs = HashMap::new();
         let mut came_from = HashMap::new();
 
-        open.push(Node::create(destination, *origin, 0));
+        open.push(AStarNode::create(destination, *origin, 0));
 
         loop {
             let curr = open.pop();
@@ -127,7 +202,7 @@ impl PathfindingGrid {
                 g_costs.insert(adj, next_g_cost);
                 came_from.insert(adj, curr.point);
 
-                let next = Node::create(destination, adj, next_g_cost);
+                let next = AStarNode::create(destination, adj, next_g_cost);
 
                 open.push(next);
             }
@@ -146,22 +221,22 @@ pub struct Point {
 }
 
 impl Point {
-    pub fn new(x: i32, y: i32) -> Point {
-        Point { x, y }
+    pub fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
     }
 }
 
 #[derive(PartialEq, Eq)]
-struct Node {
+struct AStarNode {
     point: Point,
     cost: i32,
     h_cost: i32,
     g_cost: i32,
 }
 
-impl Node {
-    fn new(point: Point, cost: i32, h_cost: i32, g_cost: i32) -> Node {
-        Node {
+impl AStarNode {
+    fn new(point: Point, cost: i32, h_cost: i32, g_cost: i32) -> AStarNode {
+        AStarNode {
             point,
             cost,
             h_cost,
@@ -169,19 +244,19 @@ impl Node {
         }
     }
 
-    fn create(destination: &Point, point: Point, g_cost: i32) -> Node {
+    fn create(destination: &Point, point: Point, g_cost: i32) -> AStarNode {
         let h_cost = chebychev(&point, destination);
-        Node::new(point, g_cost + h_cost, h_cost, g_cost)
+        AStarNode::new(point, g_cost + h_cost, h_cost, g_cost)
     }
 }
 
-impl PartialOrd for Node {
+impl PartialOrd for AStarNode {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cost.cmp(&other.cost).reverse())
     }
 }
 
-impl Ord for Node {
+impl Ord for AStarNode {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         return if self.cost == other.cost {
             self.h_cost.cmp(&other.h_cost).reverse()
