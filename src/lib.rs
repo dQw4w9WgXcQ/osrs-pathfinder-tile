@@ -3,13 +3,33 @@ use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use log::debug;
 
+mod store;
+
+const PLANES_SIZE: usize = 4;
+
+pub struct TilePathfinding {
+    planes: [PathfindingGrid; PLANES_SIZE],
+}
+
+impl TilePathfinding {
+    pub fn new(grid_planes: [Vec<Vec<u8>>; PLANES_SIZE]) -> TilePathfinding {
+        TilePathfinding {
+            planes: grid_planes.map(|plane| PathfindingGrid::new(plane)),
+        }
+    }
+
+    pub fn get_plane(&self, plane: usize) -> &PathfindingGrid {
+        &self.planes[plane]
+    }
+}
+
 pub struct PathfindingGrid {
-    grid: Vec<Vec<i8>>,
+    grid: Vec<Vec<u8>>,
 }
 
 //TODO: better error types
 impl PathfindingGrid {
-    pub fn new(grid: Vec<Vec<i8>>) -> PathfindingGrid {
+    pub fn new(grid: Vec<Vec<u8>>) -> PathfindingGrid {
         PathfindingGrid { grid }
     }
 
@@ -267,13 +287,13 @@ impl Ord for AStarNode {
 }
 
 struct BlockedDir {
-    bitmask: i8,
+    bitmask: u8,
     dx: i32,
     dy: i32,
 }
 
 impl BlockedDir {
-    const fn new(config: i8, dx: i32, dy: i32) -> BlockedDir {
+    const fn new(config: u8, dx: i32, dy: i32) -> BlockedDir {
         BlockedDir {
             bitmask: config,
             dx,
@@ -290,7 +310,6 @@ const NE: BlockedDir = BlockedDir::new(1 << 4, 1, 1);
 const NW: BlockedDir = BlockedDir::new(1 << 5, -1, 1);
 const SE: BlockedDir = BlockedDir::new(1 << 6, 1, -1);
 const SW: BlockedDir = BlockedDir::new(1 << 7, -1, -1);
-
 const BLOCKED_DIRS: [BlockedDir; 8] = [NE, NW, SE, SW, N, S, E, W];
 
 //heuristic
