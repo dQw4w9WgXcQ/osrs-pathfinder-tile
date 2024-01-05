@@ -1,9 +1,13 @@
 use std::cmp::max;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::fs::File;
+use std::io;
+use std::io::{Cursor, Read};
 
+use array_init::array_init;
+use byteorder::{BigEndian, ReadBytesExt};
 use log::debug;
-
-mod store;
+use zip::ZipArchive;
 
 const PLANES_SIZE: usize = 4;
 
@@ -234,7 +238,7 @@ impl PathfindingGrid {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Point {
     x: i32,
     y: i32,
@@ -317,6 +321,30 @@ fn chebychev(from: &Point, to: &Point) -> i32 {
     let dx = (from.x - to.x).abs();
     let dy = (from.y - to.y).abs();
     max(dx, dy)
+}
+
+pub fn load_grid(file_path: &str) -> io::Result<[Vec<Vec<u8>>; PLANES_SIZE]> {
+    let file = File::open(file_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    let mut grid_file = archive.by_name("grid.dat")?;
+    let mut buffer = Vec::new();
+    grid_file.read_to_end(&mut buffer)?;
+    let mut cursor = Cursor::new(buffer);
+
+    let width = cursor.read_i32::<BigEndian>()? as usize;
+    let height = cursor.read_i32::<BigEndian>()? as usize;
+
+    println!("width: {} height: {}", width, height);
+
+    let mut grid = array_init(|_| vec![vec![0u8; width]; height]);
+
+    for plane in &mut grid {
+        for col in plane {
+            cursor.read_exact(col)?;
+        }
+    }
+
+    Ok(grid)
 }
 
 #[cfg(test)]
