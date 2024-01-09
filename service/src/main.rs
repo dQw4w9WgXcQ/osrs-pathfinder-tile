@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -79,22 +77,27 @@ struct FindDistancesReq {
 
 #[derive(Serialize, new)]
 struct FindDistancesRes {
-    distances: HashMap<Point, i32>,
+    distances: Vec<Distance>,
+}
+
+#[derive(Serialize, new)]
+struct Distance {
+    point: Point,
+    distance: i32,
 }
 
 async fn find_distances(state: State<AppState>, Json(req): Json<FindDistancesReq>) -> Response {
-    println!("find_distances");
-
     let grid = state.tile_pathfinder.get_plane(req.plane as usize);
 
-    println!("start: {:?}", req.start);
-
     let distances_result = grid.find_distances(&req.start, req.ends);
-
-    println!("distances_result: {:?}", distances_result);
-
     match distances_result {
-        Ok(distances) => (StatusCode::OK, Json(FindDistancesRes::new(distances))).into_response(),
+        Ok(distances) => {
+            let distances = distances
+                .into_iter()
+                .map(|(point, distance)| Distance::new(point, distance))
+                .collect();
+            (StatusCode::OK, Json(FindDistancesRes::new(distances))).into_response()
+        }
         Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
     }
 }

@@ -1,6 +1,6 @@
 use std::cmp::max;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use derive_new::new;
 use log::debug;
@@ -66,7 +66,7 @@ impl PathfindingGrid {
         &self,
         start: &Point,
         ends: Vec<Point>,
-    ) -> Result<HashMap<Point, i32>, String> {
+    ) -> Result<Vec<(Point, i32)>, String> {
         if !self.in_bounds(start) {
             return Err(format!("start out of bounds: {:?}", start));
         }
@@ -76,7 +76,7 @@ impl PathfindingGrid {
         let mut queue = VecDeque::new();
         let mut seen = HashSet::new();
 
-        let mut distances = HashMap::new();
+        let mut distances = Vec::new();
 
         queue.push_back(*start);
         seen.insert(*start);
@@ -93,7 +93,7 @@ impl PathfindingGrid {
             for point in curr {
                 if ends.contains(&point) {
                     ends.remove(&point);
-                    distances.insert(point, distance);
+                    distances.push((point, distance));
                 }
 
                 let config = self.grid[point.x as usize][point.y as usize];
@@ -121,7 +121,13 @@ impl PathfindingGrid {
         }
 
         if !ends.is_empty() {
-            return Err(format!("unreachable destinations: {:?}", ends));
+            return Err(format!(
+                "unreachable destinations: [{}]",
+                ends.into_iter()
+                    .map(|p| format!("{}", p))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            ));
         }
 
         Ok(distances)
@@ -229,13 +235,13 @@ impl PathfindingGrid {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, new)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, new)]
 pub struct Point {
     pub x: i32,
     pub y: i32,
 }
 
-impl Debug for Point {
+impl Display for Point {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({},{})", self.x, self.y)
     }
