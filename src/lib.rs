@@ -40,7 +40,8 @@ pub struct PathfindingGrid {
 //TODO: better error types
 impl PathfindingGrid {
     /**
-     * Uses A*.  Returns a path exclusive of origin, inclusive of destination.
+     * Returns a path exclusive of origin, inclusive of destination.  Uses A*.
+     * None if no path is found.
      * Err if origin or destination is out of bounds.
      */
     pub fn find_path(&self, start: &Point, end: &Point) -> Result<Option<Vec<Point>>, String> {
@@ -58,7 +59,7 @@ impl PathfindingGrid {
     }
 
     /**
-     * Uses BFS.  Returns a map of points to distances.
+     * Returns a map of points to distances.  Uses BFS.
      * Err if origin/destination is out of bounds or if a destination is unreachable.
      */
     pub fn find_distances(
@@ -70,58 +71,60 @@ impl PathfindingGrid {
             return Err(format!("start out of bounds: {:?}", start));
         }
 
-        let mut ends = ends.into_iter().collect::<HashSet<Point>>();
+        let mut ends = ends.iter().collect::<HashSet<&Point>>();
+
+        let mut queue = VecDeque::new();
+        let mut seen = HashSet::new();
 
         let mut distances = HashMap::new();
 
-        let mut frontier = VecDeque::new();
-        let mut seen = HashSet::new();
-
-        frontier.push_back(*start);
+        queue.push_back(*start);
+        seen.insert(*start);
 
         let mut distance = 0;
 
         loop {
-            if ends.is_empty() {
-                return Ok(distances);
+            if queue.is_empty() {
+                break;
             }
 
-            let curr = frontier.pop_front();
-            if curr.is_none() {
-                return Err(format!("no path to {:?}", ends));
-            }
-
-            let curr = curr.unwrap();
-
-            seen.insert(curr);
-
-            if ends.contains(&curr) {
-                distances.insert(curr, distance);
-                ends.remove(&curr);
-            }
-
-            if !self.in_bounds(&curr) {
-                continue;
-            }
-
-            let config = self.grid[curr.x as usize][curr.y as usize];
-            for dir in DIRECTIONS {
-                if config & dir.flag == 0 {
-                    debug!("blocked {:?}", dir);
-                    continue;
+            let curr = queue.clone();
+            queue.clear();
+            for point in curr {
+                if ends.contains(&point) {
+                    ends.remove(&point);
+                    distances.insert(point, distance);
                 }
 
-                let adj = Point::new(curr.x + dir.dx, curr.y + dir.dy);
+                let config = self.grid[point.x as usize][point.y as usize];
+                for dir in DIRECTIONS {
+                    if config & dir.flag == 0 {
+                        continue;
+                    }
 
-                if seen.contains(&adj) {
-                    continue;
+                    let adj = Point::new(point.x + dir.dx, point.y + dir.dy);
+
+                    if !self.in_bounds(&adj) {
+                        continue;
+                    }
+
+                    if seen.contains(&adj) {
+                        continue;
+                    }
+
+                    seen.insert(adj);
+                    queue.push_back(adj);
                 }
-
-                frontier.push_back(adj);
             }
 
             distance += 1;
         }
+
+        if !ends.is_empty() {
+            return Err(format!("unreachable destinations: {:?}", ends));
+        }
+
+        Ok(distances)
     }
 
     fn a_star(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
