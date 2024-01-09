@@ -1,25 +1,29 @@
 use std::cmp::max;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
-use std::fs::File;
-use std::io;
-use std::io::{Cursor, Read};
+use std::fmt::{Debug, Formatter};
 
-use array_init::array_init;
-use byteorder::{BigEndian, ReadBytesExt};
+use derive_new::new;
 use log::debug;
-use zip::ZipArchive;
+
+pub use load::load_grid;
+
+mod load;
 
 const PLANES_SIZE: usize = 4;
 
-pub struct TilePathfinding {
+#[derive(new)]
+pub struct TilePathfinder {
     planes: [PathfindingGrid; PLANES_SIZE],
 }
 
-impl TilePathfinding {
-    pub fn new(grid_planes: [Vec<Vec<u8>>; PLANES_SIZE]) -> TilePathfinding {
-        TilePathfinding {
-            planes: grid_planes.map(|plane| PathfindingGrid::new(plane)),
-        }
+impl TilePathfinder {
+    pub fn create(grid_planes: [Vec<Vec<u8>>; PLANES_SIZE]) -> Self {
+        Self::new(grid_planes.map(|plane| PathfindingGrid::new(plane)))
+    }
+
+    pub fn load(file_path: &str) -> Result<Self, std::io::Error> {
+        let grid_planes = load_grid(file_path)?;
+        Ok(Self::create(grid_planes))
     }
 
     pub fn get_plane(&self, plane: usize) -> &PathfindingGrid {
@@ -27,40 +31,30 @@ impl TilePathfinding {
     }
 }
 
+#[derive(new)]
 pub struct PathfindingGrid {
     grid: Vec<Vec<u8>>,
 }
 
 //TODO: better error types
 impl PathfindingGrid {
-    pub fn new(grid: Vec<Vec<u8>>) -> PathfindingGrid {
-        PathfindingGrid { grid }
-    }
-
     /**
      * Uses A*.  Returns a path exclusive of origin, inclusive of destination.
      * Err if origin or destination is out of bounds.
      */
-    pub fn find_path(
-        &self,
-        origin: &Point,
-        destination: &Point,
-    ) -> Result<Option<Vec<Point>>, String> {
-        if !self.in_bounds(origin.x, origin.y) {
+    pub fn find_path(&self, start: &Point, end: &Point) -> Result<Option<Vec<Point>>, String> {
+        if !self.in_bounds(start.x, start.y) {
             return Err(format!(
-                "origin out of bounds: ({:?},{:?})",
-                origin.x, origin.y
+                "start out of bounds: ({:?},{:?})",
+                start.x, start.y
             ));
         }
 
-        if !self.in_bounds(destination.x, destination.y) {
-            return Err(format!(
-                "destination out of bounds: ({:?},{:?}",
-                destination.x, destination.y
-            ));
+        if !self.in_bounds(end.x, end.y) {
+            return Err(format!("end out of bounds: ({:?},{:?})", end.x, end.y));
         }
 
-        let path = self.a_star(origin, destination);
+        let path = self.a_star(start, end);
 
         Ok(path)
     }
@@ -118,8 +112,9 @@ impl PathfindingGrid {
             }
 
             let config = self.grid[curr.x as usize][curr.y as usize];
-            for dir in BLOCKED_DIRS {
-                if config & dir.bitmask != 0 {
+            for dir in DIRECTIONS {
+                if config & dir.flag == 0 {
+                    debug!("blocked {:?}", dir.flag);
                     continue;
                 }
 
@@ -139,13 +134,13 @@ impl PathfindingGrid {
         }
     }
 
-    fn a_star(&self, origin: &Point, destination: &Point) -> Option<Vec<Point>> {
+    fn a_star(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
         let mut open = BinaryHeap::new();
         let mut closed = HashSet::new();
         let mut g_costs = HashMap::new();
         let mut came_from = HashMap::new();
 
-        open.push(AStarNode::create(destination, *origin, 0));
+        open.push(AStarNode::create(end, *start, 0));
 
         loop {
             let curr = open.pop();
@@ -156,12 +151,12 @@ impl PathfindingGrid {
 
             let curr = curr.unwrap();
 
-            if curr.point == *destination {
+            if curr.point == *end {
                 debug!("found path");
 
                 let mut path = Vec::new();
                 let mut curr = curr.point;
-                while curr != *origin {
+                while curr != *start {
                     debug!("({:?},{:?}),", curr.x, curr.y);
                     path.push(curr);
                     let next = came_from.get(&curr).unwrap();
@@ -195,11 +190,11 @@ impl PathfindingGrid {
             //the compiler can infer x,y are in bounds, so no extra bounds checking happens.
             //if in_bounds check is removed, convert to get_unchecked or the compiler will add bounds checking and no performance gain will be seen.
             let config = self.grid[curr.point.x as usize][curr.point.y as usize];
-            debug!("config:{:?}", config);
+            debug!("config:{}", config);
 
-            for dir in BLOCKED_DIRS {
-                if config & dir.bitmask != 0 {
-                    debug!("blocked {:?}", dir.bitmask);
+            for dir in DIRECTIONS {
+                if config & dir.flag == 0 {
+                    debug!("blocked {}", dir.flag);
                     continue;
                 }
 
@@ -226,7 +221,7 @@ impl PathfindingGrid {
                 g_costs.insert(adj, next_g_cost);
                 came_from.insert(adj, curr.point);
 
-                let next = AStarNode::create(destination, adj, next_g_cost);
+                let next = AStarNode::create(end, adj, next_g_cost);
 
                 open.push(next);
             }
@@ -238,19 +233,19 @@ impl PathfindingGrid {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, new)]
 pub struct Point {
-    x: i32,
-    y: i32,
+    pub x: i32,
+    pub y: i32,
 }
 
-impl Point {
-    pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
+impl Debug for Point {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({},{})", self.x, self.y)
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, new)]
 struct AStarNode {
     point: Point,
     cost: i32,
@@ -259,15 +254,6 @@ struct AStarNode {
 }
 
 impl AStarNode {
-    fn new(point: Point, cost: i32, h_cost: i32, g_cost: i32) -> AStarNode {
-        AStarNode {
-            point,
-            cost,
-            h_cost,
-            g_cost,
-        }
-    }
-
     fn create(destination: &Point, point: Point, g_cost: i32) -> AStarNode {
         let h_cost = chebychev(&point, destination);
         AStarNode::new(point, g_cost + h_cost, h_cost, g_cost)
@@ -290,61 +276,33 @@ impl Ord for AStarNode {
     }
 }
 
-struct BlockedDir {
-    bitmask: u8,
+struct Direction {
+    flag: u8,
     dx: i32,
     dy: i32,
 }
 
-impl BlockedDir {
-    const fn new(config: u8, dx: i32, dy: i32) -> BlockedDir {
-        BlockedDir {
-            bitmask: config,
-            dx,
-            dy,
-        }
+impl Direction {
+    const fn new(flag: u8, dx: i32, dy: i32) -> Self {
+        Self { flag, dx, dy }
     }
 }
 
-const N: BlockedDir = BlockedDir::new(1, 0, 1);
-const S: BlockedDir = BlockedDir::new(1 << 1, 0, -1);
-const E: BlockedDir = BlockedDir::new(1 << 2, 1, 0);
-const W: BlockedDir = BlockedDir::new(1 << 3, -1, 0);
-const NE: BlockedDir = BlockedDir::new(1 << 4, 1, 1);
-const NW: BlockedDir = BlockedDir::new(1 << 5, -1, 1);
-const SE: BlockedDir = BlockedDir::new(1 << 6, 1, -1);
-const SW: BlockedDir = BlockedDir::new(1 << 7, -1, -1);
-const BLOCKED_DIRS: [BlockedDir; 8] = [NE, NW, SE, SW, N, S, E, W];
+const N: Direction = Direction::new(1, 0, 1);
+const S: Direction = Direction::new(1 << 1, 0, -1);
+const E: Direction = Direction::new(1 << 2, 1, 0);
+const W: Direction = Direction::new(1 << 3, -1, 0);
+const NE: Direction = Direction::new(1 << 4, 1, 1);
+const NW: Direction = Direction::new(1 << 5, -1, 1);
+const SE: Direction = Direction::new(1 << 6, 1, -1);
+const SW: Direction = Direction::new(1 << 7, -1, -1);
+const DIRECTIONS: [Direction; 8] = [NE, NW, SE, SW, N, S, E, W];
 
 //heuristic
 fn chebychev(from: &Point, to: &Point) -> i32 {
     let dx = (from.x - to.x).abs();
     let dy = (from.y - to.y).abs();
     max(dx, dy)
-}
-
-pub fn load_grid(file_path: &str) -> io::Result<[Vec<Vec<u8>>; PLANES_SIZE]> {
-    let file = File::open(file_path)?;
-    let mut archive = ZipArchive::new(file)?;
-    let mut grid_file = archive.by_name("grid.dat")?;
-    let mut buffer = Vec::new();
-    grid_file.read_to_end(&mut buffer)?;
-    let mut cursor = Cursor::new(buffer);
-
-    let width = cursor.read_i32::<BigEndian>()? as usize;
-    let height = cursor.read_i32::<BigEndian>()? as usize;
-
-    println!("width: {} height: {}", width, height);
-
-    let mut grid = array_init(|_| vec![vec![0u8; width]; height]);
-
-    for plane in &mut grid {
-        for col in plane {
-            cursor.read_exact(col)?;
-        }
-    }
-
-    Ok(grid)
 }
 
 #[cfg(test)]
@@ -368,7 +326,7 @@ mod tests {
     #[test]
     fn test_wall() {
         let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = NE.bitmask;
+        grid[1][1] = NE.flag;
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
@@ -383,10 +341,10 @@ mod tests {
     #[test]
     fn test_wall2() {
         let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = NE.bitmask;
+        grid[1][1] = NE.flag;
 
         for i in 2..8 {
-            grid[i][5] = NE.bitmask | N.bitmask | NW.bitmask;
+            grid[i][5] = NE.flag | N.flag | NW.flag;
         }
 
         let pathfinding_grid = PathfindingGrid::new(grid);
@@ -403,14 +361,7 @@ mod tests {
     #[test]
     fn test_no_path() {
         let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = N.bitmask
-            | S.bitmask
-            | E.bitmask
-            | W.bitmask
-            | NE.bitmask
-            | NW.bitmask
-            | SE.bitmask
-            | SW.bitmask;
+        grid[1][1] = N.flag | S.flag | E.flag | W.flag | NE.flag | NW.flag | SE.flag | SW.flag;
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
