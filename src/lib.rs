@@ -6,6 +6,7 @@ use derive_new::new;
 use log::debug;
 
 pub use load::load_grid;
+use serde::{Deserialize, Serialize};
 
 mod load;
 
@@ -43,15 +44,12 @@ impl PathfindingGrid {
      * Err if origin or destination is out of bounds.
      */
     pub fn find_path(&self, start: &Point, end: &Point) -> Result<Option<Vec<Point>>, String> {
-        if !self.in_bounds(start.x, start.y) {
-            return Err(format!(
-                "start out of bounds: ({:?},{:?})",
-                start.x, start.y
-            ));
+        if !self.in_bounds(start) {
+            return Err(format!("start out of bounds: {:?}", start));
         }
 
-        if !self.in_bounds(end.x, end.y) {
-            return Err(format!("end out of bounds: ({:?},{:?})", end.x, end.y));
+        if !self.in_bounds(end) {
+            return Err(format!("end out of bounds: {:?}", end));
         }
 
         let path = self.a_star(start, end);
@@ -65,63 +63,55 @@ impl PathfindingGrid {
      */
     pub fn find_distances(
         &self,
-        origin: &Point,
-        destinations: HashSet<Point>,
+        start: &Point,
+        ends: Vec<Point>,
     ) -> Result<HashMap<Point, i32>, String> {
-        if !self.in_bounds(origin.x, origin.y) {
-            return Err(format!(
-                "origin out of bounds: ({:?},{:?})",
-                origin.x, origin.y
-            ));
+        if !self.in_bounds(start) {
+            return Err(format!("start out of bounds: {:?}", start));
         }
+
+        let mut ends = ends.into_iter().collect::<HashSet<Point>>();
 
         let mut distances = HashMap::new();
 
         let mut frontier = VecDeque::new();
         let mut seen = HashSet::new();
 
-        frontier.push_back(*origin);
+        frontier.push_back(*start);
 
         let mut distance = 0;
 
         loop {
+            if ends.is_empty() {
+                return Ok(distances);
+            }
+
             let curr = frontier.pop_front();
             if curr.is_none() {
-                for destination in destinations {
-                    if !distances.contains_key(&destination) {
-                        return Err(format!(
-                            "no path to destination: ({:?},{:?})",
-                            destination.x, destination.y
-                        ));
-                    }
-                }
-
-                return Ok(distances);
+                return Err(format!("no path to {:?}", ends));
             }
 
             let curr = curr.unwrap();
 
             seen.insert(curr);
 
-            if destinations.contains(&curr) {
+            if ends.contains(&curr) {
                 distances.insert(curr, distance);
+                ends.remove(&curr);
             }
 
-            if !self.in_bounds(curr.x, curr.y) {
+            if !self.in_bounds(&curr) {
                 continue;
             }
 
             let config = self.grid[curr.x as usize][curr.y as usize];
             for dir in DIRECTIONS {
                 if config & dir.flag == 0 {
-                    debug!("blocked {:?}", dir.flag);
+                    debug!("blocked {:?}", dir);
                     continue;
                 }
 
-                let adj_x = curr.x + dir.dx;
-                let adj_y = curr.y + dir.dy;
-
-                let adj = Point::new(adj_x, adj_y);
+                let adj = Point::new(curr.x + dir.dx, curr.y + dir.dy);
 
                 if seen.contains(&adj) {
                     continue;
@@ -182,7 +172,7 @@ impl PathfindingGrid {
             closed.insert(curr.point);
 
             //might remove later.  not needed if the grid's boundary is padded and origin/destination are valid.
-            if !self.in_bounds(curr.point.x, curr.point.y) {
+            if !self.xy_in_bounds(curr.point.x, curr.point.y) {
                 debug!("out of bounds");
                 continue;
             }
@@ -191,7 +181,6 @@ impl PathfindingGrid {
             //if in_bounds check is removed, convert to get_unchecked or the compiler will add bounds checking and no performance gain will be seen.
             let config = self.grid[curr.point.x as usize][curr.point.y as usize];
             debug!("config:{}", config);
-
             for dir in DIRECTIONS {
                 if config & dir.flag == 0 {
                     debug!("blocked {}", dir.flag);
@@ -228,12 +217,16 @@ impl PathfindingGrid {
         }
     }
 
-    fn in_bounds(&self, x: i32, y: i32) -> bool {
+    fn in_bounds(&self, point: &Point) -> bool {
+        self.xy_in_bounds(point.x, point.y)
+    }
+
+    fn xy_in_bounds(&self, x: i32, y: i32) -> bool {
         x >= 0 && y >= 0 && x < self.grid.len() as i32 && y < self.grid[0].len() as i32
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, new)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, new)]
 pub struct Point {
     pub x: i32,
     pub y: i32,
@@ -276,6 +269,7 @@ impl Ord for AStarNode {
     }
 }
 
+#[derive(Debug)]
 struct Direction {
     flag: u8,
     dx: i32,
@@ -299,9 +293,9 @@ const SW: Direction = Direction::new(1 << 7, -1, -1);
 const DIRECTIONS: [Direction; 8] = [NE, NW, SE, SW, N, S, E, W];
 
 //heuristic
-fn chebychev(from: &Point, to: &Point) -> i32 {
-    let dx = (from.x - to.x).abs();
-    let dy = (from.y - to.y).abs();
+fn chebychev(a: &Point, b: &Point) -> i32 {
+    let dx = (a.x - b.x).abs();
+    let dy = (a.y - b.y).abs();
     max(dx, dy)
 }
 
@@ -374,9 +368,27 @@ mod tests {
 
     #[test]
     fn test_chebychev() {
-        let first = chebychev(&Point::new(0, 0), &Point::new(3, 4));
-        assert_eq!(first, 4);
-        let second = chebychev(&Point::new(0, 0), &Point::new(-3, 4));
-        assert_eq!(first, second);
+        let a = chebychev(&Point::new(0, 0), &Point::new(3, 4));
+        assert_eq!(a, 4);
+        let b = chebychev(&Point::new(0, 0), &Point::new(-3, 4));
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_find_distances() {
+        let grid = vec![vec![255; 10]; 10];
+        let pathfinding_grid = PathfindingGrid::new(grid);
+
+        let start = Point::new(1, 1);
+        let end = Point::new(9, 9);
+        let mut ends = Vec::new();
+        ends.push(end);
+
+        let distances = pathfinding_grid.find_distances(&start, ends).unwrap();
+
+        assert_eq!(distances.len(), 1);
+
+        let distance = distances.get(&end).unwrap();
+        assert_eq!(distance, &8);
     }
 }

@@ -13,3 +13,4 @@ zip = "0.6.6"
 byteorder = "1.5.0"
 array-init = "2.1.0"
 derive-new = "0.6.0"
+serde = { version = "1.0.195", features = ["derive"] }

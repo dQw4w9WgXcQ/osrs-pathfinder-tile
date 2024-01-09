@@ -4,8 +4,10 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{routing::post, Json, Router};
+use catch_panic::CatchPanicLayer;
 use derive_new::new;
 use serde::{Deserialize, Serialize};
+use tower_http::catch_panic;
 
 use osrs_pathfinder_tile::{Point, TilePathfinder};
 
@@ -33,52 +35,36 @@ async fn main() {
     let app = Router::new()
         .route("/find-path", post(find_path))
         .route("/find-distances", post(find_distances))
+        .layer(CatchPanicLayer::new())
         .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, new)]
-struct PointDto {
-    x: i32,
-    y: i32,
-}
-
-impl PointDto {
-    fn to_point(&self) -> Point {
-        Point::new(self.x, self.y)
-    }
-}
-
 #[derive(Deserialize)]
 struct FindPathReq {
     plane: i32,
-    start: PointDto,
-    end: PointDto,
+    start: Point,
+    end: Point,
 }
 
 #[derive(Serialize, new)]
 struct FindPathRes {
-    path: Option<Vec<PointDto>>,
+    path: Vec<Point>,
 }
 
 async fn find_path(state: State<AppState>, Json(req): Json<FindPathReq>) -> Response {
     let grid = state.tile_pathfinder.get_plane(req.plane as usize);
 
-    let start = req.start.to_point();
-    let end = req.end.to_point();
-
-    match grid.find_path(&start, &end) {
+    match grid.find_path(&req.start, &req.end) {
         Ok(path_opt) => {
-            if path_opt.is_none() {
-                return (StatusCode::OK, Json(FindPathRes::new(None))).into_response();
+            if path_opt.is_some() {
+                let path = path_opt.unwrap();
+                (StatusCode::OK, Json(FindPathRes::new(path))).into_response()
+            } else {
+                (StatusCode::BAD_REQUEST, "No path").into_response()
             }
-
-            let path = path_opt.unwrap();
-            let path_dto = path.iter().map(|p| PointDto::new(p.x, p.y)).collect();
-
-            (StatusCode::OK, Json(FindPathRes::new(Some(path_dto)))).into_response()
         }
         Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
     }
@@ -87,32 +73,28 @@ async fn find_path(state: State<AppState>, Json(req): Json<FindPathReq>) -> Resp
 #[derive(Deserialize)]
 struct FindDistancesReq {
     plane: i32,
-    origin: PointDto,
-    destinations: Vec<PointDto>,
+    start: Point,
+    ends: Vec<Point>,
 }
 
 #[derive(Serialize, new)]
 struct FindDistancesRes {
-    distances: HashMap<PointDto, i32>,
+    distances: HashMap<Point, i32>,
 }
 
 async fn find_distances(state: State<AppState>, Json(req): Json<FindDistancesReq>) -> Response {
+    println!("find_distances");
+
     let grid = state.tile_pathfinder.get_plane(req.plane as usize);
 
-    let origin = req.origin.to_point();
-    let destinations = req.destinations.iter().map(|p| p.to_point()).collect();
+    println!("start: {:?}", req.start);
 
-    println!("origin: {:?}", origin);
+    let distances_result = grid.find_distances(&req.start, req.ends);
 
-    match grid.find_distances(&origin, destinations) {
-        Ok(distances) => {
-            let distances_dto = distances
-                .iter()
-                .map(|(p, d)| (PointDto::new(p.x, p.y), *d))
-                .collect();
+    println!("distances_result: {:?}", distances_result);
 
-            (StatusCode::OK, Json(FindDistancesRes::new(distances_dto))).into_response()
-        }
+    match distances_result {
+        Ok(distances) => (StatusCode::OK, Json(FindDistancesRes::new(distances))).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
     }
 }
