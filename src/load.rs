@@ -5,9 +5,7 @@ use array_init::array_init;
 use byteorder::{BigEndian, ReadBytesExt};
 use zip::ZipArchive;
 
-use crate::PLANES_SIZE;
-
-pub fn load_grid(file_path: &str) -> Result<[Vec<Vec<u8>>; PLANES_SIZE], std::io::Error> {
+pub fn load_grid(file_path: &str) -> Result<[Vec<Vec<u8>>; crate::PLANES_SIZE], std::io::Error> {
     let file = File::open(file_path)?;
     let mut archive = ZipArchive::new(file)?;
 

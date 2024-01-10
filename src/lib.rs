@@ -4,8 +4,6 @@ use std::fmt::{Debug, Display, Formatter};
 
 use derive_new::new;
 use log::debug;
-
-pub use load::load_grid;
 use serde::{Deserialize, Serialize};
 
 mod load;
@@ -23,7 +21,7 @@ impl TilePathfinder {
     }
 
     pub fn load(file_path: &str) -> Result<Self, std::io::Error> {
-        let grid_planes = load_grid(file_path)?;
+        let grid_planes = load::load_grid(file_path)?;
         Ok(Self::create(grid_planes))
     }
 
@@ -314,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_find_path() {
-        let grid = vec![vec![0; 10]; 10];
+        let grid = vec![vec![255; 10]; 10];
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
@@ -328,8 +326,11 @@ mod tests {
 
     #[test]
     fn test_wall() {
-        let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = NE.flag;
+        let mut grid = vec![vec![255; 10]; 10];
+        grid[1][1] &= !NE.flag;
+
+        println!("{}", grid[1][1]);
+
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
@@ -343,11 +344,11 @@ mod tests {
 
     #[test]
     fn test_wall2() {
-        let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = NE.flag;
+        let mut grid = vec![vec![255; 10]; 10];
+        grid[1][1] &= !NE.flag;
 
         for i in 2..8 {
-            grid[i][5] = NE.flag | N.flag | NW.flag;
+            grid[i][5] &= !NE.flag & !N.flag & !NW.flag;
         }
 
         let pathfinding_grid = PathfindingGrid::new(grid);
@@ -363,8 +364,8 @@ mod tests {
 
     #[test]
     fn test_no_path() {
-        let mut grid = vec![vec![0; 10]; 10];
-        grid[1][1] = N.flag | S.flag | E.flag | W.flag | NE.flag | NW.flag | SE.flag | SW.flag;
+        let mut grid = vec![vec![255; 10]; 10];
+        grid[1][1] = 0;
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
@@ -397,7 +398,7 @@ mod tests {
 
         assert_eq!(distances.len(), 1);
 
-        let distance = distances.get(&end).unwrap();
-        assert_eq!(distance, &8);
+        let distance = distances.get(0).unwrap().1;
+        assert_eq!(distance, 8);
     }
 }
