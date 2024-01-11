@@ -233,6 +233,40 @@ impl PathfindingGrid {
     }
 }
 
+pub fn to_minified_path(path: Vec<Point>) -> Vec<Point> {
+    let mut minified = Vec::new();
+    let mut prev_prev = None;
+    let mut prev = None;
+    for curr in path {
+        if prev.is_none() {
+            prev = Some(curr);
+            minified.push(curr);
+            continue;
+        }
+
+        if prev_prev.is_none() {
+            prev_prev = prev;
+            prev = Some(curr);
+            continue;
+        }
+
+        let dx = prev.unwrap().x - prev_prev.unwrap().x;
+        let dy = prev.unwrap().y - prev_prev.unwrap().y;
+        let dx2 = curr.x - prev.unwrap().x;
+        let dy2 = curr.y - prev.unwrap().y;
+
+        if dx != dx2 || dy != dy2 {
+            minified.push(prev.unwrap());
+        }
+
+        prev_prev = prev;
+        prev = Some(curr);
+    }
+
+    minified.push(prev.unwrap());
+    minified
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, new)]
 pub struct Point {
     pub x: i32,

@@ -7,7 +7,7 @@ use derive_new::new;
 use serde::{Deserialize, Serialize};
 use tower_http::catch_panic;
 
-use osrs_pathfinder_tile::{Point, TilePathfinder};
+use osrs_pathfinder_tile::{to_minified_path, Point, TilePathfinder};
 
 #[derive(Clone)]
 struct AppState {
@@ -59,7 +59,8 @@ async fn find_path(state: State<AppState>, Json(req): Json<FindPathReq>) -> Resp
         Ok(path_opt) => {
             if path_opt.is_some() {
                 let path = path_opt.unwrap();
-                (StatusCode::OK, Json(FindPathRes::new(path))).into_response()
+                let minified_path = to_minified_path(path);
+                (StatusCode::OK, Json(FindPathRes::new(minified_path))).into_response()
             } else {
                 (StatusCode::BAD_REQUEST, "No path").into_response()
             }
