@@ -1,6 +1,8 @@
-use std::cmp::max;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
-use std::fmt::{Debug, Display, Formatter};
+use std::{
+    cmp::max,
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+    fmt::{Debug, Display, Formatter},
+};
 
 use derive_new::new;
 use log::debug;
@@ -233,7 +235,7 @@ impl PathfindingGrid {
     }
 }
 
-pub fn to_minified_path(path: Vec<Point>) -> Vec<Point> {
+pub fn minify_path(path: Vec<Point>) -> Vec<Point> {
     let mut minified = Vec::new();
     let mut prev_prev = None;
     let mut prev = None;

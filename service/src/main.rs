@@ -1,13 +1,10 @@
-use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::{routing::post, Json, Router};
+use axum::{extract::State, http::StatusCode, Json, response::{IntoResponse, Response}, Router, routing::post};
 use catch_panic::CatchPanicLayer;
 use derive_new::new;
 use serde::{Deserialize, Serialize};
 use tower_http::catch_panic;
 
-use osrs_pathfinder_tile::{to_minified_path, Point, TilePathfinder};
+use osrs_pathfinder_tile::{minify_path, Point, TilePathfinder};
 
 #[derive(Clone)]
 struct AppState {
@@ -56,15 +53,11 @@ async fn find_path(state: State<AppState>, Json(req): Json<FindPathReq>) -> Resp
     let grid = state.tile_pathfinder.get_plane(req.plane as usize);
 
     match grid.find_path(&req.start, &req.end) {
-        Ok(path_opt) => {
-            if path_opt.is_some() {
-                let path = path_opt.unwrap();
-                let minified_path = to_minified_path(path);
-                (StatusCode::OK, Json(FindPathRes::new(minified_path))).into_response()
-            } else {
-                (StatusCode::BAD_REQUEST, "No path").into_response()
-            }
+        Ok(Some(path)) => {
+            let minified_path = minify_path(path);
+            (StatusCode::OK, Json(FindPathRes::new(minified_path))).into_response()
         }
+        Ok(None) => (StatusCode::BAD_REQUEST, "No path").into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
     }
 }

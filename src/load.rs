@@ -1,5 +1,7 @@
-use std::fs::File;
-use std::io::{Cursor, Read};
+use std::{
+    fs::File,
+    io::{Cursor, Read},
+};
 
 use array_init::array_init;
 use byteorder::{BigEndian, ReadBytesExt};
