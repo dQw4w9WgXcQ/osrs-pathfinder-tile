@@ -183,7 +183,7 @@ impl PathfindingGrid {
             closed.insert(curr.point);
 
             //might remove later.  not needed if the grid's boundary is padded and origin/destination are valid.
-            if !self.xy_in_bounds(curr.point.x, curr.point.y) {
+            if !self.in_bounds(&curr.point) {
                 debug!("out of bounds");
                 continue;
             }
@@ -226,6 +226,59 @@ impl PathfindingGrid {
                 open.push(next);
             }
         }
+    }
+
+    //was used for performance comparison
+    #[allow(dead_code)]
+    fn bfs(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
+        if start == end {
+            return Some(vec![*start]);
+        }
+
+        let mut frontier = VecDeque::new();
+        let mut seen_from = HashMap::new();
+
+        frontier.push_back(*start);
+        while !frontier.is_empty() {
+            let curr = frontier.pop_front().unwrap();
+            if curr == *end {
+                let mut path = Vec::new();
+                let mut curr = curr;
+                while curr != *start {
+                    path.push(curr);
+                    let next = seen_from.get(&curr).unwrap();
+                    curr = *next;
+                }
+                path.reverse();
+                return Some(path);
+            }
+
+            let x = curr.x as usize;
+            let y = curr.y as usize;
+
+            let config = unsafe { *self.grid.get_unchecked(x).get_unchecked(y) };
+
+            for dir in DIRECTIONS {
+                if config & dir.flag == 0 {
+                    continue;
+                }
+
+                let adj = Point::new(curr.x + dir.dx, curr.y + dir.dy);
+
+                if !self.in_bounds(&adj) {
+                    continue;
+                }
+
+                if seen_from.contains_key(&adj) {
+                    continue;
+                }
+
+                seen_from.insert(adj, curr);
+                frontier.push_back(adj);
+            }
+        }
+
+        None
     }
 
     fn in_bounds(&self, point: &Point) -> bool {
@@ -339,7 +392,7 @@ const NE: Direction = Direction::new(1 << 4, 1, 1);
 const NW: Direction = Direction::new(1 << 5, -1, 1);
 const SE: Direction = Direction::new(1 << 6, 1, -1);
 const SW: Direction = Direction::new(1 << 7, -1, -1);
-const DIRECTIONS: [Direction; 8] = [NE, NW, SE, SW, N, S, E, W];
+const DIRECTIONS: [Direction; 8] = [N, S, E, W, NE, NW, SE, SW];
 
 //heuristic
 fn chebychev(a: &Point, b: &Point) -> i32 {
