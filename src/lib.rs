@@ -55,7 +55,7 @@ impl PathfindingGrid {
             return Err(format!("end out of bounds: {:?}", end));
         }
 
-        let path = self.a_star(start, end);
+        let path = self.bfs(start, end);
 
         Ok(path)
     }
@@ -135,7 +135,7 @@ impl PathfindingGrid {
         Ok(distances)
     }
 
-    fn a_star(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
+    fn astar(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
         let mut open = BinaryHeap::new();
         let mut closed = HashSet::new();
         let mut g_costs = HashMap::new();
@@ -350,7 +350,7 @@ struct AStarNode {
 
 impl AStarNode {
     fn create(destination: &Point, point: Point, g_cost: i32) -> AStarNode {
-        let h_cost = chebychev(&point, destination);
+        let h_cost = heuristic(&point, destination);
         AStarNode::new(point, g_cost + h_cost, h_cost, g_cost)
     }
 }
@@ -394,11 +394,24 @@ const SE: Direction = Direction::new(1 << 6, 1, -1);
 const SW: Direction = Direction::new(1 << 7, -1, -1);
 const DIRECTIONS: [Direction; 8] = [N, S, E, W, NE, NW, SE, SW];
 
-//heuristic
-fn chebychev(a: &Point, b: &Point) -> i32 {
+fn chebyshev(a: &Point, b: &Point) -> i32 {
     let dx = (a.x - b.x).abs();
     let dy = (a.y - b.y).abs();
     max(dx, dy)
+}
+
+fn manhattan(a: &Point, b: &Point) -> i32 {
+    let dx = (a.x - b.x).abs();
+    let dy = (a.y - b.y).abs();
+    dx + dy
+}
+
+//manhattan distance is used as a tiebreaker to create nicer paths
+fn heuristic(a: &Point, b: &Point) -> i32 {
+    let chebyshev = chebyshev(a, b);
+    let manhattan = manhattan(a, b);
+
+    (chebyshev + 100_000) + manhattan
 }
 
 pub fn load_grid(file_path: &str) -> Result<[Vec<Vec<u8>>; PLANES_SIZE], std::io::Error> {
@@ -437,7 +450,7 @@ mod tests {
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 9);
 
-        let path = pathfinding_grid.a_star(&origin, &destination);
+        let path = pathfinding_grid.astar(&origin, &destination);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 8);
@@ -453,8 +466,7 @@ mod tests {
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 9);
 
-        let path = pathfinding_grid.a_star(&origin, &destination);
-
+        let path = pathfinding_grid.astar(&origin, &destination);
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 9);
     }
@@ -473,7 +485,7 @@ mod tests {
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 9);
 
-        let path = pathfinding_grid.a_star(&origin, &destination);
+        let path = pathfinding_grid.astar(&origin, &destination);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 11);
@@ -488,16 +500,16 @@ mod tests {
         let origin = Point::new(1, 1);
         let destination = Point::new(9, 3);
 
-        let path = pathfinding_grid.a_star(&origin, &destination);
+        let path = pathfinding_grid.astar(&origin, &destination);
 
         assert!(path.is_none());
     }
 
     #[test]
-    fn test_chebychev() {
-        let a = chebychev(&Point::new(0, 0), &Point::new(3, 4));
+    fn test_chebyshev() {
+        let a = chebyshev(&Point::new(0, 0), &Point::new(3, 4));
         assert_eq!(a, 4);
-        let b = chebychev(&Point::new(0, 0), &Point::new(-3, 4));
+        let b = chebyshev(&Point::new(0, 0), &Point::new(-3, 4));
         assert_eq!(a, b);
     }
 
