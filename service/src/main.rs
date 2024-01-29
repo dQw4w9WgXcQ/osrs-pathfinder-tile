@@ -1,4 +1,10 @@
-use axum::{extract::State, http::StatusCode, Json, response::{IntoResponse, Response}, Router, routing::post};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::post,
+    Json, Router,
+};
 use catch_panic::CatchPanicLayer;
 use derive_new::new;
 use serde::{Deserialize, Serialize};

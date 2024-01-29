@@ -1,14 +1,16 @@
+use std::fs::File;
+use std::io::{Cursor, Read};
 use std::{
     cmp::max,
     collections::{BinaryHeap, HashMap, HashSet, VecDeque},
     fmt::{Debug, Display, Formatter},
 };
 
+use byteorder::{BigEndian, ReadBytesExt};
 use derive_new::new;
 use log::debug;
 use serde::{Deserialize, Serialize};
-
-mod load;
+use zip::ZipArchive;
 
 const PLANES_SIZE: usize = 4;
 
@@ -23,7 +25,7 @@ impl TilePathfinder {
     }
 
     pub fn load(file_path: &str) -> Result<Self, std::io::Error> {
-        let grid_planes = load::load_grid(file_path)?;
+        let grid_planes = load_grid(file_path)?;
         Ok(Self::create(grid_planes))
     }
 
@@ -236,6 +238,10 @@ impl PathfindingGrid {
 }
 
 pub fn minify_path(path: Vec<Point>) -> Vec<Point> {
+    if path.is_empty() {
+        return Vec::new();
+    }
+
     let mut minified = Vec::new();
     let mut prev_prev = None;
     let mut prev = None;
@@ -342,6 +348,30 @@ fn chebychev(a: &Point, b: &Point) -> i32 {
     max(dx, dy)
 }
 
+pub fn load_grid(file_path: &str) -> Result<[Vec<Vec<u8>>; PLANES_SIZE], std::io::Error> {
+    let file = File::open(file_path)?;
+    let mut archive = ZipArchive::new(file)?;
+
+    let mut grid_file = archive.by_name("grid.dat")?;
+    let mut buffer = Vec::new();
+    grid_file.read_to_end(&mut buffer)?;
+
+    let mut cursor = Cursor::new(buffer);
+
+    let width = cursor.read_i32::<BigEndian>()? as usize;
+    let height = cursor.read_i32::<BigEndian>()? as usize;
+
+    let mut grid = array_init::array_init(|_| vec![vec![0u8; height]; width]);
+
+    for plane in &mut grid {
+        for col in plane {
+            cursor.read_exact(col)?;
+        }
+    }
+
+    Ok(grid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,8 +394,6 @@ mod tests {
     fn test_wall() {
         let mut grid = vec![vec![255; 10]; 10];
         grid[1][1] &= !NE.flag;
-
-        println!("{}", grid[1][1]);
 
         let pathfinding_grid = PathfindingGrid::new(grid);
 
@@ -436,5 +464,53 @@ mod tests {
 
         let distance = distances.get(0).unwrap().1;
         assert_eq!(distance, 8);
+    }
+
+    #[test]
+    fn test_minify_path() {
+        assert_eq!(
+            vec![Point { x: 0, y: 0 }, Point { x: 4, y: 4 }],
+            minify_path(vec![
+                Point { x: 0, y: 0 },
+                Point { x: 1, y: 1 },
+                Point { x: 2, y: 2 },
+                Point { x: 3, y: 3 },
+                Point { x: 4, y: 4 },
+            ])
+        );
+
+        assert_eq!(
+            vec![
+                Point { x: 0, y: 0 },
+                Point { x: 2, y: 0 },
+                Point { x: 4, y: 2 },
+            ],
+            minify_path(vec![
+                Point { x: 0, y: 0 },
+                Point { x: 1, y: 0 },
+                Point { x: 2, y: 0 },
+                Point { x: 3, y: 1 },
+                Point { x: 4, y: 2 },
+            ])
+        );
+
+        assert_eq!(
+            vec![
+                Point { x: 0, y: 0 },
+                Point { x: 2, y: 0 },
+                Point { x: 4, y: 2 },
+                Point { x: 5, y: 2 },
+            ],
+            minify_path(vec![
+                Point { x: 0, y: 0 },
+                Point { x: 1, y: 0 },
+                Point { x: 2, y: 0 },
+                Point { x: 3, y: 1 },
+                Point { x: 4, y: 2 },
+                Point { x: 5, y: 2 },
+            ])
+        );
+
+        assert_eq!(Vec::<Point>::new(), minify_path(Vec::<Point>::new()));
     }
 }
