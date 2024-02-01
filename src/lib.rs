@@ -58,11 +58,22 @@ impl TilePathfinder {
     }
 }
 
+#[derive(Debug)]
+pub enum FindPathError {
+    StartOutOfBounds,
+    EndOutOfBounds,
+}
+
+#[derive(Debug)]
+pub enum FindDistancesError {
+    StartOutOfBounds,
+    UnreachableEnds(Vec<Point>),
+}
+
 pub struct PathfindingGrid {
     grid: Vec<Vec<u8>>,
 }
 
-//TODO: better error types
 impl PathfindingGrid {
     pub fn new(grid: Vec<Vec<u8>>) -> Self {
         let mut grid = grid;
@@ -75,13 +86,17 @@ impl PathfindingGrid {
      * None if no path is found.
      * Err if origin or destination is out of bounds.
      */
-    pub fn find_path(&self, start: &Point, end: &Point) -> Result<Option<Vec<Point>>, String> {
+    pub fn find_path(
+        &self,
+        start: &Point,
+        end: &Point,
+    ) -> Result<Option<Vec<Point>>, FindPathError> {
         if !self.in_bounds(start) {
-            return Err(format!("start out of bounds: {:?}", start));
+            return Err(FindPathError::StartOutOfBounds);
         }
 
         if !self.in_bounds(end) {
-            return Err(format!("end out of bounds: {:?}", end));
+            return Err(FindPathError::EndOutOfBounds);
         }
 
         let path = self.bfs(start, end);
@@ -97,31 +112,29 @@ impl PathfindingGrid {
         &self,
         start: &Point,
         ends: Vec<Point>,
-    ) -> Result<Vec<(Point, i32)>, String> {
+    ) -> Result<Vec<(Point, i32)>, FindDistancesError> {
         if !self.in_bounds(start) {
-            return Err(format!("start out of bounds: {:?}", start));
+            return Err(FindDistancesError::StartOutOfBounds);
         }
 
         let mut ends = ends.iter().collect::<HashSet<&Point>>();
 
-        let mut queue = VecDeque::new();
-        let mut seen = HashSet::new();
-
         let mut distances = Vec::new();
 
-        queue.push_back(*start);
+        let mut frontier = Vec::new();
+        frontier.push(*start);
+        let mut seen = HashSet::new();
         seen.insert(*start);
 
         let mut distance = 0;
 
         loop {
-            if queue.is_empty() {
+            if frontier.is_empty() {
                 break;
             }
 
-            let curr = queue.clone();
-            queue.clear();
-            for point in curr {
+            let mut next_frontier = Vec::new();
+            for point in frontier {
                 if ends.contains(&point) {
                     ends.remove(&point);
                     distances.push((point, distance));
@@ -142,20 +155,18 @@ impl PathfindingGrid {
                     }
 
                     seen.insert(adj);
-                    queue.push_back(adj);
+                    next_frontier.push(adj);
                 }
             }
+
+            frontier = next_frontier;
 
             distance += 1;
         }
 
         if !ends.is_empty() {
-            return Err(format!(
-                "unreachable destinations: [{}]",
-                ends.into_iter()
-                    .map(|p| format!("{}", p))
-                    .collect::<Vec<String>>()
-                    .join(",")
+            return Err(FindDistancesError::UnreachableEnds(
+                ends.iter().map(|p| **p).collect(),
             ));
         }
 
@@ -538,9 +549,8 @@ mod tests {
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let start = Point::new(1, 1);
-        let end = Point::new(9, 9);
         let mut ends = Vec::new();
-        ends.push(end);
+        ends.push(Point::new(9, 9));
 
         let distances = pathfinding_grid.find_distances(&start, ends).unwrap();
 
