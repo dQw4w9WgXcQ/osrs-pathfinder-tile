@@ -1,3 +1,5 @@
+use std::env;
+
 use axum::{
     extract::State,
     http::StatusCode,
@@ -27,6 +29,15 @@ impl AppState {
 
 #[tokio::main]
 async fn main() {
+    println!(
+        "Current directory: {}",
+        env::current_dir()
+            .unwrap()
+            .into_os_string()
+            .into_string()
+            .unwrap()
+    );
+
     tracing_subscriber::fmt::init();
 
     let tile_pathfinder = TilePathfinder::load("./grid.zip").unwrap();
@@ -39,7 +50,9 @@ async fn main() {
         .layer(CatchPanicLayer::new())
         .with_state(app_state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    println!("starting");
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
