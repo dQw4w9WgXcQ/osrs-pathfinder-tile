@@ -25,22 +25,51 @@ impl TilePathfinder {
     }
 
     pub fn load(file_path: &str) -> Result<Self, std::io::Error> {
-        let grid_planes = load_grid(file_path)?;
+        let grid_planes = Self::load_grid(file_path)?;
         Ok(Self::create(grid_planes))
     }
 
     pub fn get_plane(&self, plane: usize) -> &PathfindingGrid {
         &self.planes[plane]
     }
+
+    pub fn load_grid(file_path: &str) -> Result<[Vec<Vec<u8>>; PLANES_SIZE], std::io::Error> {
+        let file = File::open(file_path)?;
+        let mut archive = ZipArchive::new(file)?;
+
+        let mut grid_file = archive.by_name("grid.dat")?;
+        let mut buffer = Vec::new();
+        grid_file.read_to_end(&mut buffer)?;
+
+        let mut cursor = Cursor::new(buffer);
+
+        let width = cursor.read_i32::<BigEndian>()? as usize;
+        let height = cursor.read_i32::<BigEndian>()? as usize;
+
+        let mut grid = array_init::array_init(|_| vec![vec![0u8; height]; width]);
+
+        for plane in &mut grid {
+            for col in plane {
+                cursor.read_exact(col)?;
+            }
+        }
+
+        Ok(grid)
+    }
 }
 
-#[derive(new)]
 pub struct PathfindingGrid {
     grid: Vec<Vec<u8>>,
 }
 
 //TODO: better error types
 impl PathfindingGrid {
+    pub fn new(grid: Vec<Vec<u8>>) -> Self {
+        let mut grid = grid;
+        Self::pad_grid(&mut grid);
+        Self { grid }
+    }
+
     /**
      * Returns a path exclusive of origin, inclusive of destination.  Uses A*.
      * None if no path is found.
@@ -98,17 +127,15 @@ impl PathfindingGrid {
                     distances.push((point, distance));
                 }
 
-                let config = self.grid[point.x as usize][point.y as usize];
+                let x = point.x as usize;
+                let y = point.y as usize;
+                let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
                 for dir in DIRECTIONS {
                     if config & dir.flag == 0 {
                         continue;
                     }
 
                     let adj = Point::new(point.x + dir.dx, point.y + dir.dy);
-
-                    if !self.in_bounds(&adj) {
-                        continue;
-                    }
 
                     if seen.contains(&adj) {
                         continue;
@@ -182,15 +209,9 @@ impl PathfindingGrid {
 
             closed.insert(curr.point);
 
-            //might remove later.  not needed if the grid's boundary is padded and origin/destination are valid.
-            if !self.in_bounds(&curr.point) {
-                debug!("out of bounds");
-                continue;
-            }
-
-            //the compiler can infer x,y are in bounds, so no extra bounds checking happens.
-            //if in_bounds check is removed, convert to get_unchecked or the compiler will add bounds checking and no performance gain will be seen.
-            let config = self.grid[curr.point.x as usize][curr.point.y as usize];
+            let x = curr.point.x as usize;
+            let y = curr.point.y as usize;
+            let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
             debug!("config:{}", config);
             for dir in DIRECTIONS {
                 if config & dir.flag == 0 {
@@ -203,7 +224,6 @@ impl PathfindingGrid {
 
                 debug!("adj:{},{}", adj_x, adj_y);
 
-                //the adj can be out of bounds, but will be checked before use.
                 let adj = Point::new(adj_x, adj_y);
                 let next_g_cost = curr.g_cost + 1;
 
@@ -256,7 +276,7 @@ impl PathfindingGrid {
             let x = curr.x as usize;
             let y = curr.y as usize;
 
-            let config = unsafe { *self.grid.get_unchecked(x).get_unchecked(y) };
+            let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
 
             for dir in DIRECTIONS {
                 if config & dir.flag == 0 {
@@ -264,10 +284,6 @@ impl PathfindingGrid {
                 }
 
                 let adj = Point::new(curr.x + dir.dx, curr.y + dir.dy);
-
-                if !self.in_bounds(&adj) {
-                    continue;
-                }
 
                 if seen_from.contains_key(&adj) {
                     continue;
@@ -279,6 +295,26 @@ impl PathfindingGrid {
         }
 
         None
+    }
+
+    fn pad_grid(grid: &mut Vec<Vec<u8>>) {
+        let width = grid.len();
+        let height = grid[0].len();
+
+        let n_flag = N.flag | NE.flag | NW.flag;
+        let s_flag = S.flag | SE.flag | SW.flag;
+        let e_flag = E.flag | NE.flag | SE.flag;
+        let w_flag = W.flag | NW.flag | SW.flag;
+
+        for x in 0..width {
+            grid[x][0] &= !s_flag;
+            grid[x][height - 1] &= !n_flag;
+        }
+
+        for y in 0..height {
+            grid[0][y] &= !w_flag;
+            grid[width - 1][y] &= !e_flag;
+        }
     }
 
     fn in_bounds(&self, point: &Point) -> bool {
@@ -400,43 +436,25 @@ fn chebyshev(a: &Point, b: &Point) -> i32 {
     max(dx, dy)
 }
 
-fn manhattan(a: &Point, b: &Point) -> i32 {
-    let dx = (a.x - b.x).abs();
-    let dy = (a.y - b.y).abs();
-    dx + dy
-}
-
-//manhattan distance is used as a tiebreaker to create nicer paths
 fn heuristic(a: &Point, b: &Point) -> i32 {
-    let chebyshev = chebyshev(a, b);
-    let manhattan = manhattan(a, b);
-
-    (chebyshev + 100_000) + manhattan
+    chebyshev(a, b)
 }
 
-pub fn load_grid(file_path: &str) -> Result<[Vec<Vec<u8>>; PLANES_SIZE], std::io::Error> {
-    let file = File::open(file_path)?;
-    let mut archive = ZipArchive::new(file)?;
+//doesnt work
 
-    let mut grid_file = archive.by_name("grid.dat")?;
-    let mut buffer = Vec::new();
-    grid_file.read_to_end(&mut buffer)?;
-
-    let mut cursor = Cursor::new(buffer);
-
-    let width = cursor.read_i32::<BigEndian>()? as usize;
-    let height = cursor.read_i32::<BigEndian>()? as usize;
-
-    let mut grid = array_init::array_init(|_| vec![vec![0u8; height]; width]);
-
-    for plane in &mut grid {
-        for col in plane {
-            cursor.read_exact(col)?;
-        }
-    }
-
-    Ok(grid)
-}
+// fn manhattan(a: &Point, b: &Point) -> i32 {
+//     let dx = (a.x - b.x).abs();
+//     let dy = (a.y - b.y).abs();
+//     dx + dy
+// }
+//
+// //manhattan distance is used as a tiebreaker to create nicer paths
+// fn heuristic(a: &Point, b: &Point) -> i32 {
+//     let chebyshev = chebyshev(a, b);
+//     let manhattan = manhattan(a, b);
+//
+//     (chebyshev + 100_000) + manhattan
+// }
 
 #[cfg(test)]
 mod tests {
@@ -444,7 +462,7 @@ mod tests {
 
     #[test]
     fn test_find_path() {
-        let grid = vec![vec![255; 10]; 10];
+        let grid = vec![vec![!0; 10]; 10];
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let origin = Point::new(1, 1);
@@ -473,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_wall2() {
-        let mut grid = vec![vec![255; 10]; 10];
+        let mut grid = vec![vec![!0; 10]; 10];
         grid[1][1] &= !NE.flag;
 
         for i in 2..8 {
@@ -493,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_no_path() {
-        let mut grid = vec![vec![255; 10]; 10];
+        let mut grid = vec![vec![!0; 10]; 10];
         grid[1][1] = 0;
         let pathfinding_grid = PathfindingGrid::new(grid);
 
@@ -515,7 +533,7 @@ mod tests {
 
     #[test]
     fn test_find_distances() {
-        let grid = vec![vec![255; 10]; 10];
+        let grid = vec![vec![!0; 10]; 10];
         let pathfinding_grid = PathfindingGrid::new(grid);
 
         let start = Point::new(1, 1);
