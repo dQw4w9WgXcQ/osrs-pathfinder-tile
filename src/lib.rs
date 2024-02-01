@@ -128,11 +128,7 @@ impl PathfindingGrid {
 
         let mut distance = 0;
 
-        loop {
-            if frontier.is_empty() {
-                break;
-            }
-
+        while !frontier.is_empty() {
             let mut next_frontier = Vec::new();
             for point in frontier {
                 if ends.contains(&point) {
