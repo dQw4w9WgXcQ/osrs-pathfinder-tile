@@ -162,6 +162,7 @@ impl PathfindingGrid {
         Ok(distances)
     }
 
+    #[allow(dead_code)]
     fn astar(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
         let mut open = BinaryHeap::new();
         let mut closed = HashSet::new();
