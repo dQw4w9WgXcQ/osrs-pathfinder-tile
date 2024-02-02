@@ -87,7 +87,7 @@ impl PathfindingGrid {
     }
 
     /**
-     * Returns a path exclusive of start, inclusive of end.  Uses A*.
+     * Returns a path inclusive of both start and end.
      * None if no path is found.
      * Err if start or end is out of bounds.
      */
@@ -203,6 +203,7 @@ impl PathfindingGrid {
                     let next = came_from.get(&curr).unwrap();
                     curr = *next;
                 }
+                path.push(*start);
 
                 path.reverse();
                 return Some(path);
@@ -261,7 +262,6 @@ impl PathfindingGrid {
         }
     }
 
-    //was used for performance comparison
     #[allow(dead_code)]
     fn bfs(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
         if start == end {
@@ -282,6 +282,7 @@ impl PathfindingGrid {
                     let next = seen_from.get(&curr).unwrap();
                     curr = *next;
                 }
+                path.push(*start);
                 path.reverse();
                 return Some(path);
             }
@@ -484,7 +485,7 @@ mod tests {
         let path = pathfinding_grid.astar(&start, &end);
 
         assert!(path.is_some());
-        assert_eq!(path.unwrap().len(), 8);
+        assert_eq!(path.unwrap().len(), 9);
     }
 
     #[test]
@@ -499,7 +500,7 @@ mod tests {
 
         let path = pathfinding_grid.astar(&start, &end);
         assert!(path.is_some());
-        assert_eq!(path.unwrap().len(), 9);
+        assert_eq!(path.unwrap().len(), 10);
     }
 
     #[test]
@@ -519,7 +520,7 @@ mod tests {
         let path = pathfinding_grid.astar(&start, &end);
 
         assert!(path.is_some());
-        assert_eq!(path.unwrap().len(), 11);
+        assert_eq!(path.unwrap().len(), 12);
     }
 
     #[test]
