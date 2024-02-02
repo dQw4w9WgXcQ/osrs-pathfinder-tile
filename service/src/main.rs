@@ -1,16 +1,17 @@
 use axum::{
     extract::State,
     http::StatusCode,
-    response::{IntoResponse, Response},
-    routing::{get, post},
     Json,
+    response::{IntoResponse, Response},
     Router,
+    routing::{get, post},
 };
 use catch_panic::CatchPanicLayer;
 use derive_new::new;
-use osrs_pathfinder_tile::{minify_path, Point, TilePathfinder};
 use serde::{Deserialize, Serialize};
 use tower_http::catch_panic;
+
+use osrs_pathfinder_tile::{minify_path, Point, TilePathfinder};
 
 #[derive(Clone)]
 struct AppState {
