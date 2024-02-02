@@ -1,10 +1,10 @@
 FROM rust as build
-WORKDIR /osrs-pathfinder-tile
+WORKDIR /workdir
 COPY . .
 RUN cargo build --package service --release
 
 FROM ubuntu
-COPY --from=build /osrs-pathfinder-tile/target/release/service /app/service
-WORKDIR /app
+WORKDIR /workdir
+COPY --from=build /workdir/target/release/service service
 EXPOSE 8080
 CMD ["./service"]

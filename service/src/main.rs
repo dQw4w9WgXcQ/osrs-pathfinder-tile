@@ -1,10 +1,8 @@
-use std::env;
-
 use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Json,
     Router,
 };
@@ -29,14 +27,9 @@ impl AppState {
 
 #[tokio::main]
 async fn main() {
-    println!(
-        "Current directory: {}",
-        env::current_dir()
-            .unwrap()
-            .into_os_string()
-            .into_string()
-            .unwrap()
-    );
+    println!("================Starting server================");
+
+    let port = std::env::var("PORT").unwrap_or("8080".to_string());
 
     tracing_subscriber::fmt::init();
 
@@ -45,14 +38,15 @@ async fn main() {
     let app_state = AppState::new(tile_pathfinder);
 
     let app = Router::new()
+        .route("/", get(|| async { "Hello, World!" }))
         .route("/find-path", post(find_path))
         .route("/find-distances", post(find_distances))
         .layer(CatchPanicLayer::new())
         .with_state(app_state);
 
-    println!("starting on port 8080...");
-
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
+        .await
+        .unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 

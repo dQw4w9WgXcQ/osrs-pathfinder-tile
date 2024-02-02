@@ -7,10 +7,11 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-osrs-pathfinder-tile = { path = "../../osrs-pathfinder-tile" }
+osrs-pathfinder-tile = { path = "../" }
 axum = { version = "0.7.3", features = ["tokio"] }
 serde = { version = "1.0.195", features = ["derive"] }
 tokio = { version = "1.25.0", features = ["full"] }
 tracing-subscriber = "0.3.18"
 tower-http = { version = "0.5.0", features = ["catch-panic"] }
 derive-new = "0.6.0"
+log = "0.4.20"
