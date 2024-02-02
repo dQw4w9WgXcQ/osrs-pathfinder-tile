@@ -1,12 +1,13 @@
-use std::fs::File;
-use std::io::{Cursor, Read};
 use std::{
     cmp::max,
     collections::{BinaryHeap, HashMap, HashSet, VecDeque},
     fmt::{Debug, Display, Formatter},
+    fs::File,
+    io::{Cursor, Read},
 };
 
 use byteorder::{BigEndian, ReadBytesExt};
+use derive_more::Display;
 use derive_new::new;
 use log::debug;
 use serde::{Deserialize, Serialize};
@@ -58,16 +59,20 @@ impl TilePathfinder {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub enum FindPathError {
+    #[display(fmt = "Start out of bounds")]
     StartOutOfBounds,
+    #[display(fmt = "End out of bounds")]
     EndOutOfBounds,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub enum FindDistancesError {
+    #[display(fmt = "Start out of bounds")]
     StartOutOfBounds,
-    UnreachableEnds(Vec<Point>),
+    #[display(fmt = "Ends unreachable: {:?}", _0)]
+    EndsUnreachable(Vec<Point>),
 }
 
 pub struct PathfindingGrid {
@@ -82,9 +87,9 @@ impl PathfindingGrid {
     }
 
     /**
-     * Returns a path exclusive of origin, inclusive of destination.  Uses A*.
+     * Returns a path exclusive of start, inclusive of end.  Uses A*.
      * None if no path is found.
-     * Err if origin or destination is out of bounds.
+     * Err if start or end is out of bounds.
      */
     pub fn find_path(
         &self,
@@ -106,7 +111,7 @@ impl PathfindingGrid {
 
     /**
      * Returns a map of points to distances.  Uses BFS.
-     * Err if origin/destination is out of bounds or if a destination is unreachable.
+     * Err if start is out of bounds or if an end is unreachable.
      */
     pub fn find_distances(
         &self,
@@ -161,7 +166,7 @@ impl PathfindingGrid {
         }
 
         if !ends.is_empty() {
-            return Err(FindDistancesError::UnreachableEnds(
+            return Err(FindDistancesError::EndsUnreachable(
                 ends.iter().map(|p| **p).collect(),
             ));
         }
@@ -393,8 +398,8 @@ struct AStarNode {
 }
 
 impl AStarNode {
-    fn create(destination: &Point, point: Point, g_cost: i32) -> AStarNode {
-        let h_cost = heuristic(&point, destination);
+    fn create(end: &Point, point: Point, g_cost: i32) -> AStarNode {
+        let h_cost = heuristic(&point, end);
         AStarNode::new(point, g_cost + h_cost, h_cost, g_cost)
     }
 }
@@ -473,10 +478,10 @@ mod tests {
         let grid = vec![vec![!0; 10]; 10];
         let pathfinding_grid = PathfindingGrid::new(grid);
 
-        let origin = Point::new(1, 1);
-        let destination = Point::new(9, 9);
+        let start = Point::new(1, 1);
+        let end = Point::new(9, 9);
 
-        let path = pathfinding_grid.astar(&origin, &destination);
+        let path = pathfinding_grid.astar(&start, &end);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 8);
@@ -489,10 +494,10 @@ mod tests {
 
         let pathfinding_grid = PathfindingGrid::new(grid);
 
-        let origin = Point::new(1, 1);
-        let destination = Point::new(9, 9);
+        let start = Point::new(1, 1);
+        let end = Point::new(9, 9);
 
-        let path = pathfinding_grid.astar(&origin, &destination);
+        let path = pathfinding_grid.astar(&start, &end);
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 9);
     }
@@ -508,10 +513,10 @@ mod tests {
 
         let pathfinding_grid = PathfindingGrid::new(grid);
 
-        let origin = Point::new(1, 1);
-        let destination = Point::new(9, 9);
+        let start = Point::new(1, 1);
+        let end = Point::new(9, 9);
 
-        let path = pathfinding_grid.astar(&origin, &destination);
+        let path = pathfinding_grid.astar(&start, &end);
 
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 11);
@@ -523,10 +528,10 @@ mod tests {
         grid[1][1] = 0;
         let pathfinding_grid = PathfindingGrid::new(grid);
 
-        let origin = Point::new(1, 1);
-        let destination = Point::new(9, 3);
+        let start = Point::new(1, 1);
+        let end = Point::new(9, 3);
 
-        let path = pathfinding_grid.astar(&origin, &destination);
+        let path = pathfinding_grid.astar(&start, &end);
 
         assert!(path.is_none());
     }
