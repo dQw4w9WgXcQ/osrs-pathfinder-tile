@@ -489,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wall() {
+    fn test_find_path_wall() {
         let mut grid = vec![vec![255; 10]; 10];
         grid[1][1] &= !NE.flag;
 
@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wall2() {
+    fn test_find_path_wall2() {
         let mut grid = vec![vec![!0; 10]; 10];
         grid[1][1] &= !NE.flag;
 
@@ -524,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn test_no_path() {
+    fn test_find_path_no_path() {
         let mut grid = vec![vec![!0; 10]; 10];
         grid[1][1] = 0;
         let pathfinding_grid = PathfindingGrid::new(grid);
@@ -535,14 +535,6 @@ mod tests {
         let path = pathfinding_grid.astar(&start, &end);
 
         assert!(path.is_none());
-    }
-
-    #[test]
-    fn test_chebyshev() {
-        let a = chebyshev(&Point::new(0, 0), &Point::new(3, 4));
-        assert_eq!(a, 4);
-        let b = chebyshev(&Point::new(0, 0), &Point::new(-3, 4));
-        assert_eq!(a, b);
     }
 
     #[test]
@@ -560,6 +552,31 @@ mod tests {
 
         let distance = distances.get(0).unwrap().1;
         assert_eq!(distance, 8);
+    }
+
+    #[test]
+    fn test_find_distances_start_end_equal() {
+        let grid = vec![vec![!0; 10]; 10];
+        let pathfinding_grid = PathfindingGrid::new(grid);
+
+        let start = Point::new(1, 1);
+        let mut ends = Vec::new();
+        ends.push(Point::new(1, 1));
+
+        let distances = pathfinding_grid.find_distances(&start, ends).unwrap();
+
+        assert_eq!(distances.len(), 1);
+
+        let distance = distances.get(0).unwrap().1;
+        assert_eq!(distance, 0);
+    }
+
+    #[test]
+    fn test_chebyshev() {
+        let a = chebyshev(&Point::new(0, 0), &Point::new(3, 4));
+        assert_eq!(a, 4);
+        let b = chebyshev(&Point::new(0, 0), &Point::new(-3, 4));
+        assert_eq!(a, b);
     }
 
     #[test]
