@@ -475,7 +475,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_find_path() {
+    fn test_astar() {
         let grid = vec![vec![!0; 10]; 10];
         let pathfinding_grid = PathfindingGrid::new(grid);
 
@@ -489,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_path_wall() {
+    fn test_astar_wall() {
         let mut grid = vec![vec![255; 10]; 10];
         grid[1][1] &= !NE.flag;
 
@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_path_wall2() {
+    fn test_astar_wall2() {
         let mut grid = vec![vec![!0; 10]; 10];
         grid[1][1] &= !NE.flag;
 
@@ -524,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_path_no_path() {
+    fn test_astar_no_path() {
         let mut grid = vec![vec![!0; 10]; 10];
         grid[1][1] = 0;
         let pathfinding_grid = PathfindingGrid::new(grid);
