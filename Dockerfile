@@ -5,6 +5,6 @@ RUN cargo build --package service --release
 
 FROM ubuntu
 WORKDIR /workdir
-COPY --from=build /workdir/target/release/service service
+COPY --from=build /workdir/target/release/service /binddir/service
 EXPOSE 8080
-CMD ["./service"]
+CMD ["/bindir/service"]
