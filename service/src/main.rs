@@ -34,6 +34,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let tile_pathfinder = TilePathfinder::load("./grid.zip").unwrap();
+    println!("loaded grid.zip");
 
     let app_state = AppState::new(tile_pathfinder);
 
