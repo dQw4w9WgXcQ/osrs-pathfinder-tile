@@ -86,11 +86,9 @@ impl PathfindingGrid {
         Self { grid }
     }
 
-    /**
-     * Returns a path inclusive of both start and end.
-     * None if no path is found.
-     * Err if start or end is out of bounds.
-     */
+    /// Returns a path inclusive of both start and end.
+    /// None if no path is found.
+    /// Err if start or end is out of bounds.
     pub fn find_path(
         &self,
         start: &Point,
@@ -109,10 +107,8 @@ impl PathfindingGrid {
         Ok(path)
     }
 
-    /**
-     * Returns a map of points to distances.  Uses BFS.
-     * Err if start is out of bounds or if an end is unreachable.
-     */
+    /// Returns a map of points to distances.  Uses BFS.
+    /// Err if start is out of bounds or if an end is unreachable.
     pub fn find_distances(
         &self,
         start: &Point,
