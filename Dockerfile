@@ -4,7 +4,8 @@ FROM rust as build
 ARG TARGETPLATFORM
 WORKDIR /workdir
 COPY . .
-RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then CARGO_BUILD_TARGET="x86_64-unknown-linux-gnu";  \
+RUN if [ -z "$TARGETPLATFORM" ]; then echo "TARGETPLATFORM not set"; exit 1; \
+    elif [ "$TARGETPLATFORM" = "linux/amd64" ]; then CARGO_BUILD_TARGET="x86_64-unknown-linux-gnu";  \
     elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then CARGO_BUILD_TARGET="aarch64-unknown-linux-gnu"; \
     else echo "Unsupported platform: $TARGETPLATFORM"; exit 1;  \
     fi; \
