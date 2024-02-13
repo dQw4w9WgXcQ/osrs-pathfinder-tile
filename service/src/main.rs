@@ -8,6 +8,7 @@ use axum::{
 };
 use catch_panic::CatchPanicLayer;
 use derive_new::new;
+use log::info;
 use osrs_pathfinder_tile::{minify_path, Point, TilePathfinder};
 use serde::{Deserialize, Serialize};
 use tower_http::catch_panic;
@@ -34,7 +35,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let tile_pathfinder = TilePathfinder::load("./grid.zip").unwrap();
-    println!("loaded grid.zip");
+    info!("loaded grid.zip");
 
     let app_state = AppState::new(tile_pathfinder);
 
@@ -64,6 +65,11 @@ struct FindPathRes {
 }
 
 async fn find_path(state: State<AppState>, Json(req): Json<FindPathReq>) -> Response {
+    info!(
+        "find-path, start: {} end: {} plane: {}",
+        req.start, req.end, req.plane
+    );
+
     let grid = state.tile_pathfinder.get_plane(req.plane as usize);
 
     match grid.find_path(&req.start, &req.end) {
@@ -95,6 +101,8 @@ struct Distance {
 }
 
 async fn find_distances(state: State<AppState>, Json(req): Json<FindDistancesReq>) -> Response {
+    info!("find-distances, start: {} plane: {}", req.start, req.plane);
+
     let grid = state.tile_pathfinder.get_plane(req.plane as usize);
 
     let distances_result = grid.find_distances(&req.start, req.ends);
