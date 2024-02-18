@@ -2,6 +2,8 @@
 
 FROM rust as build
 ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+RUN echo "Building for $TARGETPLATFORM on $BUILDPLATFORM"
 WORKDIR /workdir
 COPY . .
 RUN if [ -z "$TARGETPLATFORM" ]; then echo "TARGETPLATFORM not set"; exit 1; \
