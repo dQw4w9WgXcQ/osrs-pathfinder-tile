@@ -75,6 +75,14 @@ pub enum FindDistancesError {
     EndsUnreachable(Vec<Point>),
 }
 
+#[derive(Debug, Display, Deserialize)]
+pub enum Algo {
+    #[serde(rename = "A_STAR")]
+    AStar,
+    #[serde(rename = "BFS")]
+    Bfs,
+}
+
 pub struct PathfindingGrid {
     grid: Vec<Vec<u8>>,
 }
@@ -93,6 +101,7 @@ impl PathfindingGrid {
         &self,
         start: &Point,
         end: &Point,
+        algo: Algo,
     ) -> Result<Option<Vec<Point>>, FindPathError> {
         if !self.in_bounds(start) {
             return Err(FindPathError::StartOutOfBounds);
@@ -102,7 +111,10 @@ impl PathfindingGrid {
             return Err(FindPathError::EndOutOfBounds);
         }
 
-        let path = self.bfs(start, end);
+        let path = match algo {
+            Algo::AStar => self.astar(start, end),
+            Algo::Bfs => self.bfs(start, end),
+        };
 
         Ok(path)
     }
@@ -170,7 +182,6 @@ impl PathfindingGrid {
         Ok(distances)
     }
 
-    #[allow(dead_code)]
     fn astar(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
         let mut open = BinaryHeap::new();
         let mut closed = HashSet::new();
@@ -258,7 +269,6 @@ impl PathfindingGrid {
         }
     }
 
-    #[allow(dead_code)]
     fn bfs(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
         if start == end {
             return Some(vec![*start]);

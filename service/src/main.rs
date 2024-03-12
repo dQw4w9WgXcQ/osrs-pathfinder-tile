@@ -9,7 +9,7 @@ use axum::{
 use catch_panic::CatchPanicLayer;
 use derive_new::new;
 use log::info;
-use osrs_pathfinder_tile::{minify_path, Point, TilePathfinder};
+use osrs_pathfinder_tile::{minify_path, Algo, Point, TilePathfinder};
 use serde::{Deserialize, Serialize};
 use tower_http::catch_panic;
 
@@ -29,10 +29,10 @@ impl AppState {
 #[tokio::main]
 async fn main() {
     println!("================Starting server================");
-
-    let port = std::env::var("PORT").unwrap_or("8080".to_string());
-
     tracing_subscriber::fmt::init();
+
+    let port = std::env::var("PORT").unwrap_or("8081".to_string());
+    info!("port {}", port);
 
     let tile_pathfinder = TilePathfinder::load("./grid.zip").unwrap();
     info!("loaded grid.zip");
@@ -57,26 +57,29 @@ struct FindPathReq {
     plane: i32,
     start: Point,
     end: Point,
+    algo: Option<Algo>,
 }
 
 #[derive(Serialize, new)]
 struct FindPathRes {
+    size: i32,
     path: Vec<Point>,
 }
 
 async fn find_path(state: State<AppState>, Json(req): Json<FindPathReq>) -> Response {
     info!(
-        "find-path, start: {} end: {} plane: {}",
-        req.start, req.end, req.plane
+        "find-path, start: {} end: {} plane: {} algo: {:?}",
+        req.start, req.end, req.plane, req.algo
     );
 
     let grid = state.tile_pathfinder.get_plane(req.plane as usize);
 
-    match grid.find_path(&req.start, &req.end) {
-        Ok(Some(path)) => {
-            let minified_path = minify_path(path);
-            (StatusCode::OK, Json(FindPathRes::new(minified_path))).into_response()
-        }
+    match grid.find_path(&req.start, &req.end, req.algo.unwrap_or(Algo::AStar)) {
+        Ok(Some(path)) => (
+            StatusCode::OK,
+            Json(FindPathRes::new((path.len() - 1) as i32, minify_path(path))),
+        )
+            .into_response(),
         Ok(None) => (StatusCode::BAD_REQUEST, "No path").into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, format!("{e}")).into_response(),
     }
