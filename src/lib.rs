@@ -461,8 +461,8 @@ fn chebyshev(a: &Point, b: &Point) -> i32 {
 // }
 
 //kinda works but not really.
-//a* w/ tiebreak: https://cdn.discordapp.com/attachments/167513997694861313/1217511021040762961/Screenshot_2024-03-13_at_9.33.45_AM.png
-//bfs: https://cdn.discordapp.com/attachments/167513997694861313/1217511070822961252/Screenshot_2024-03-13_at_9.33.36_AM.png
+//a* w/ tiebreak: https://i.imgur.com/u4Lnofu.png
+//bfs: https://i.imgur.com/OQUqiQP.png
 
 fn manhattan(a: &Point, b: &Point) -> i32 {
     let dx = (a.x - b.x).abs();
