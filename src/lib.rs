@@ -246,7 +246,12 @@ impl PathfindingGrid {
                 debug!("adj:{},{}", adj_x, adj_y);
 
                 let adj = Point::new(adj_x, adj_y);
-                let next_g_cost = curr.g_cost + 1;
+                let diag_cost = if (x as i32 - adj_x).abs() + (y as i32 - adj_y).abs() == 2 {
+                    1
+                } else {
+                    0
+                };
+                let next_g_cost = curr.g_cost + 100_000 + diag_cost;
 
                 //also functions as a check for if adj is already closed.
                 let old_g_cost = g_costs.get(&adj);
@@ -463,19 +468,31 @@ fn chebyshev(a: &Point, b: &Point) -> i32 {
 //kinda works but not really.
 //a* w/ tiebreak: https://i.imgur.com/u4Lnofu.png
 //bfs: https://i.imgur.com/OQUqiQP.png
+// fn manhattan(a: &Point, b: &Point) -> i32 {
+//     let dx = (a.x - b.x).abs();
+//     let dy = (a.y - b.y).abs();
+//     dx + dy
+// }
+//
+// //manhattan distance is used as a tiebreaker to create nicer paths
+// fn heuristic(a: &Point, b: &Point) -> i32 {
+//     let chebyshev = chebyshev(a, b);
+//     let manhattan = manhattan(a, b);
+//
+//     (chebyshev * 100_000) + manhattan
+// }
 
-fn manhattan(a: &Point, b: &Point) -> i32 {
+fn diagonal_cost(a: &Point, b: &Point) -> i32 {
     let dx = (a.x - b.x).abs();
     let dy = (a.y - b.y).abs();
-    dx + dy
+    (dx - dy).abs()
 }
-
 //manhattan distance is used as a tiebreaker to create nicer paths
 fn heuristic(a: &Point, b: &Point) -> i32 {
     let chebyshev = chebyshev(a, b);
-    let manhattan = manhattan(a, b);
+    let diagonal_cost = diagonal_cost(a, b);
 
-    (chebyshev + 100_000) + manhattan
+    (chebyshev * 100_000) + diagonal_cost
 }
 
 #[cfg(test)]
