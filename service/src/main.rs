@@ -62,7 +62,7 @@ struct FindPathReq {
 
 #[derive(Serialize, new)]
 struct FindPathRes {
-    size: i32,
+    cost: i32,
     path: Vec<Point>,
 }
 
