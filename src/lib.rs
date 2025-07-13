@@ -1,6 +1,6 @@
 use std::{
     cmp::max,
-    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+    collections::{BinaryHeap, HashMap, HashSet},
     fmt::{Debug, Display, Formatter},
     fs::File,
     io::{Cursor, Read},
@@ -22,7 +22,7 @@ pub struct TilePathfinder {
 
 impl TilePathfinder {
     pub fn create(grid_planes: [Vec<Vec<u8>>; PLANES_SIZE]) -> Self {
-        Self::new(grid_planes.map(|plane| PathfindingGrid::new(plane)))
+        Self::new(grid_planes.map(|plane| PathfindingGrid::new(&plane)))
     }
 
     pub fn load(file_path: &str) -> Result<Self, std::io::Error> {
@@ -88,8 +88,8 @@ pub struct PathfindingGrid {
 }
 
 impl PathfindingGrid {
-    pub fn new(grid: Vec<Vec<u8>>) -> Self {
-        let mut grid = grid;
+    pub fn new(grid: &[Vec<u8>]) -> Self {
+        let mut grid = grid.to_vec();
         Self::pad_grid(&mut grid);
         Self { grid }
     }
@@ -130,28 +130,26 @@ impl PathfindingGrid {
             return Err(FindDistancesError::StartOutOfBounds);
         }
 
-        let mut ends = ends.iter().collect::<HashSet<&Point>>();
+        let mut ends: HashSet<Point> = ends.into_iter().collect();
 
         let mut distances = Vec::new();
 
-        let mut frontier = Vec::new();
-        frontier.push(*start);
+        let mut frontier = vec![*start];
+        let mut next_frontier = Vec::new();
         let mut seen = HashSet::new();
         seen.insert(*start);
 
         let mut distance = 0;
 
         while !frontier.is_empty() {
-            let mut next_frontier = Vec::new();
-            for point in frontier {
-                if ends.contains(&point) {
-                    ends.remove(&point);
+            for point in frontier.drain(..) {
+                if ends.remove(&point) {
                     distances.push((point, distance));
                 }
 
                 let x = point.x as usize;
                 let y = point.y as usize;
-                let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
+                let config = self.grid[x][y];
                 for dir in DIRECTIONS {
                     if config & dir.flag == 0 {
                         continue;
@@ -168,14 +166,13 @@ impl PathfindingGrid {
                 }
             }
 
-            frontier = next_frontier;
-
+            std::mem::swap(&mut frontier, &mut next_frontier);
             distance += 1;
         }
 
         if !ends.is_empty() {
             return Err(FindDistancesError::EndsUnreachable(
-                ends.iter().map(|p| **p).collect(),
+                ends.into_iter().collect(),
             ));
         }
 
@@ -232,7 +229,7 @@ impl PathfindingGrid {
 
             let x = curr.point.x as usize;
             let y = curr.point.y as usize;
-            let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
+            let config = self.grid[x][y];
             debug!("config:{}", config);
             for dir in DIRECTIONS {
                 if config & dir.flag == 0 {
@@ -279,44 +276,47 @@ impl PathfindingGrid {
             return Some(vec![*start]);
         }
 
-        let mut frontier = VecDeque::new();
+        let mut frontier = vec![*start];
+        let mut next_frontier = Vec::new();
         let mut seen_from = HashMap::new();
 
-        frontier.push_back(*start);
         while !frontier.is_empty() {
-            let curr = frontier.pop_front().unwrap();
-            if curr == *end {
-                let mut path = Vec::new();
-                let mut curr = curr;
-                while curr != *start {
-                    path.push(curr);
-                    let next = seen_from.get(&curr).unwrap();
-                    curr = *next;
+            for curr in frontier.drain(..) {
+                if curr == *end {
+                    let mut path = Vec::new();
+                    let mut curr = curr;
+                    while curr != *start {
+                        path.push(curr);
+                        let next = seen_from.get(&curr).unwrap();
+                        curr = *next;
+                    }
+                    path.push(*start);
+                    path.reverse();
+                    return Some(path);
                 }
-                path.push(*start);
-                path.reverse();
-                return Some(path);
+
+                let x = curr.x as usize;
+                let y = curr.y as usize;
+
+                let config = self.grid[x][y];
+
+                for dir in DIRECTIONS {
+                    if config & dir.flag == 0 {
+                        continue;
+                    }
+
+                    let adj = Point::new(curr.x + dir.dx, curr.y + dir.dy);
+
+                    if seen_from.contains_key(&adj) {
+                        continue;
+                    }
+
+                    seen_from.insert(adj, curr);
+                    next_frontier.push(adj);
+                }
             }
-
-            let x = curr.x as usize;
-            let y = curr.y as usize;
-
-            let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
-
-            for dir in DIRECTIONS {
-                if config & dir.flag == 0 {
-                    continue;
-                }
-
-                let adj = Point::new(curr.x + dir.dx, curr.y + dir.dy);
-
-                if seen_from.contains_key(&adj) {
-                    continue;
-                }
-
-                seen_from.insert(adj, curr);
-                frontier.push_back(adj);
-            }
+            
+            std::mem::swap(&mut frontier, &mut next_frontier);
         }
 
         None
@@ -502,7 +502,7 @@ mod tests {
     #[test]
     fn test_astar() {
         let grid = vec![vec![!0; 10]; 10];
-        let pathfinding_grid = PathfindingGrid::new(grid);
+        let pathfinding_grid = PathfindingGrid::new(&grid);
 
         let start = Point::new(1, 1);
         let end = Point::new(9, 9);
@@ -518,7 +518,7 @@ mod tests {
         let mut grid = vec![vec![255; 10]; 10];
         grid[1][1] &= !NE.flag;
 
-        let pathfinding_grid = PathfindingGrid::new(grid);
+        let pathfinding_grid = PathfindingGrid::new(&grid);
 
         let start = Point::new(1, 1);
         let end = Point::new(9, 9);
@@ -537,7 +537,7 @@ mod tests {
             grid[i][5] &= !NE.flag & !N.flag & !NW.flag;
         }
 
-        let pathfinding_grid = PathfindingGrid::new(grid);
+        let pathfinding_grid = PathfindingGrid::new(&grid);
 
         let start = Point::new(1, 1);
         let end = Point::new(9, 9);
@@ -552,7 +552,7 @@ mod tests {
     fn test_astar_no_path() {
         let mut grid = vec![vec![!0; 10]; 10];
         grid[1][1] = 0;
-        let pathfinding_grid = PathfindingGrid::new(grid);
+        let pathfinding_grid = PathfindingGrid::new(&grid);
 
         let start = Point::new(1, 1);
         let end = Point::new(9, 3);
@@ -565,7 +565,7 @@ mod tests {
     #[test]
     fn test_find_distances() {
         let grid = vec![vec![!0; 10]; 10];
-        let pathfinding_grid = PathfindingGrid::new(grid);
+        let pathfinding_grid = PathfindingGrid::new(&grid);
 
         let start = Point::new(1, 1);
         let mut ends = Vec::new();
@@ -582,7 +582,7 @@ mod tests {
     #[test]
     fn test_find_distances_start_end_equal() {
         let grid = vec![vec![!0; 10]; 10];
-        let pathfinding_grid = PathfindingGrid::new(grid);
+        let pathfinding_grid = PathfindingGrid::new(&grid);
 
         let start = Point::new(1, 1);
         let mut ends = Vec::new();
