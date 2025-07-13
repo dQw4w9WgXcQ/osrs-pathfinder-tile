@@ -14,9 +14,8 @@ use serde::{Deserialize, Serialize};
 use zip::ZipArchive;
 
 const PLANES_SIZE: usize = 4;
-// Improved constants for better numerical stability
-const DIAGONAL_COST: i32 = 14142; // sqrt(2) * 10000 for better precision
-const STRAIGHT_COST: i32 = 10000;
+// OSRS-specific constants: diagonal movement has same cost as straight movement
+const MOVEMENT_COST: i32 = 10000; // All movements (diagonal, horizontal, vertical) have same cost in OSRS
 const HEURISTIC_WEIGHT: i32 = 10000; // Reduced from 100_000 to prevent overflow
 
 #[derive(new)]
@@ -261,10 +260,8 @@ impl PathfindingGrid {
                 continue;
             }
 
-            // Calculate movement cost more efficiently
-            let is_diagonal = dir.dx.abs() + dir.dy.abs() == 2;
-            let movement_cost = if is_diagonal { DIAGONAL_COST } else { STRAIGHT_COST };
-            let tentative_g = current.g_cost + movement_cost;
+            // In OSRS, all movements (diagonal, horizontal, vertical) have the same cost
+            let tentative_g = current.g_cost + MOVEMENT_COST;
 
             let should_update = match node_data.get(&neighbor) {
                 Some(existing) => tentative_g < existing.g_cost,
@@ -365,12 +362,8 @@ impl PathfindingGrid {
                 debug!("adj:{},{}", adj_x, adj_y);
 
                 let adj = Point::new(adj_x, adj_y);
-                let diag_cost = if (x as i32 - adj_x).abs() + (y as i32 - adj_y).abs() == 2 {
-                    1
-                } else {
-                    0
-                };
-                let next_g_cost = curr.g_cost + STRAIGHT_COST + diag_cost;
+                // In OSRS, all movements have the same cost regardless of direction
+                let next_g_cost = curr.g_cost + MOVEMENT_COST;
 
                 //also functions as a check for if adj is already closed.
                 let old_g_cost = g_costs.get(&adj);
@@ -661,9 +654,9 @@ impl PathfindingGrid {
     fn distance(&self, from: &Point, to: &Point) -> i32 {
         let dx = (to.x - from.x).abs();
         let dy = (to.y - from.y).abs();
-        let diagonal_steps = std::cmp::min(dx, dy);
-        let straight_steps = (dx - dy).abs();
-        diagonal_steps * DIAGONAL_COST + straight_steps * STRAIGHT_COST
+        // In OSRS, all movements have the same cost, so use Chebyshev distance
+        let chebyshev_distance = std::cmp::max(dx, dy);
+        chebyshev_distance * MOVEMENT_COST
     }
 
     fn pad_grid(grid: &mut Vec<Vec<u8>>) {
@@ -850,17 +843,17 @@ fn chebyshev(a: &Point, b: &Point) -> i32 {
     max(dx, dy)
 }
 
-/// Optimized heuristic function with better numerical stability
+/// Optimized heuristic function for OSRS (all movements have same cost)
 fn heuristic_optimized(a: &Point, b: &Point) -> i32 {
     let dx = (a.x - b.x).abs();
     let dy = (a.y - b.y).abs();
     
-    // Use octile distance for 8-directional movement
-    let diagonal_steps = std::cmp::min(dx, dy);
-    let straight_steps = (dx - dy).abs();
+    // In OSRS, diagonal movement has same cost as straight movement
+    // So we use Chebyshev distance (max of dx, dy) as heuristic
+    let chebyshev_distance = std::cmp::max(dx, dy);
     
-    // More accurate cost estimation
-    (diagonal_steps * DIAGONAL_COST + straight_steps * STRAIGHT_COST) / 10
+    // Scale by movement cost for proper comparison
+    chebyshev_distance * MOVEMENT_COST
 }
 
 // Original heuristic function for backward compatibility
