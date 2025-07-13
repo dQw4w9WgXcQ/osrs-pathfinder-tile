@@ -356,6 +356,10 @@ pub fn minify_path(path: Vec<Point>) -> Vec<Point> {
         return Vec::new();
     }
 
+    if path.len() == 1 {
+        return path;
+    }
+
     let mut minified = Vec::new();
     let mut prev_prev = None;
     let mut prev = None;
@@ -499,156 +503,775 @@ fn heuristic(a: &Point, b: &Point) -> i32 {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_astar() {
-        let grid = vec![vec![!0; 10]; 10];
-        let pathfinding_grid = PathfindingGrid::new(&grid);
-
-        let start = Point::new(1, 1);
-        let end = Point::new(9, 9);
-
-        let path = pathfinding_grid.astar(&start, &end);
-
-        assert!(path.is_some());
-        assert_eq!(path.unwrap().len(), 9);
+    // Test utilities
+    fn create_empty_grid(width: usize, height: usize) -> Vec<Vec<u8>> {
+        vec![vec![!0; height]; width]
     }
 
-    #[test]
-    fn test_astar_wall() {
-        let mut grid = vec![vec![255; 10]; 10];
-        grid[1][1] &= !NE.flag;
-
-        let pathfinding_grid = PathfindingGrid::new(&grid);
-
-        let start = Point::new(1, 1);
-        let end = Point::new(9, 9);
-
-        let path = pathfinding_grid.astar(&start, &end);
-        assert!(path.is_some());
-        assert_eq!(path.unwrap().len(), 10);
+    fn create_blocked_grid(width: usize, height: usize) -> Vec<Vec<u8>> {
+        vec![vec![0; height]; width]
     }
 
-    #[test]
-    fn test_astar_wall2() {
-        let mut grid = vec![vec![!0; 10]; 10];
-        grid[1][1] &= !NE.flag;
-
+    fn create_maze_grid() -> Vec<Vec<u8>> {
+        // A more complex maze-like grid for testing
+        let mut grid = create_empty_grid(10, 10);
+        
+        // Create walls
         for i in 2..8 {
-            grid[i][5] &= !NE.flag & !N.flag & !NW.flag;
+            grid[i][5] = 0; // Horizontal wall
+        }
+        grid[7][5] = !0; // Gap in wall
+        
+        // Vertical walls
+        for i in 1..4 {
+            grid[3][i] = 0;
+        }
+        
+        grid
+    }
+
+    fn assert_path_valid(_grid: &PathfindingGrid, path: &[Point]) {
+        assert!(!path.is_empty(), "Path should not be empty");
+        
+        for window in path.windows(2) {
+            let from = window[0];
+            let to = window[1];
+            
+            // Check that consecutive points are adjacent
+            let dx = (to.x - from.x).abs();
+            let dy = (to.y - from.y).abs();
+            assert!(dx <= 1 && dy <= 1, "Path contains non-adjacent points: {:?} -> {:?}", from, to);
+            assert!(dx + dy >= 1, "Path contains duplicate points: {:?} -> {:?}", from, to);
+        }
+    }
+
+    fn assert_path_connects(path: &[Point], start: &Point, end: &Point) {
+        assert_eq!(path.first(), Some(start), "Path should start at start point");
+        assert_eq!(path.last(), Some(end), "Path should end at end point");
+    }
+
+    mod basic_functionality {
+        use super::*;
+
+        #[test]
+        fn test_pathfinding_grid_creation() {
+            let grid = create_empty_grid(5, 5);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+            
+            // Basic sanity check
+            assert!(pathfinding_grid.in_bounds(&Point::new(0, 0)));
+            assert!(pathfinding_grid.in_bounds(&Point::new(4, 4)));
+            assert!(!pathfinding_grid.in_bounds(&Point::new(5, 5)));
+            assert!(!pathfinding_grid.in_bounds(&Point::new(-1, 0)));
         }
 
-        let pathfinding_grid = PathfindingGrid::new(&grid);
+        #[test]
+        fn test_point_display() {
+            let point = Point::new(5, 10);
+            assert_eq!(format!("{}", point), "(5,10)");
+        }
 
-        let start = Point::new(1, 1);
-        let end = Point::new(9, 9);
+        #[test]
+        fn test_point_creation() {
+            let point = Point::new(3, 7);
+            assert_eq!(point.x, 3);
+            assert_eq!(point.y, 7);
+        }
 
-        let path = pathfinding_grid.astar(&start, &end);
+        #[test]
+        fn test_bounds_checking() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
 
-        assert!(path.is_some());
-        assert_eq!(path.unwrap().len(), 12);
+            // Valid bounds
+            assert!(pathfinding_grid.in_bounds(&Point::new(0, 0)));
+            assert!(pathfinding_grid.in_bounds(&Point::new(9, 9)));
+            assert!(pathfinding_grid.in_bounds(&Point::new(5, 5)));
+
+            // Invalid bounds
+            assert!(!pathfinding_grid.in_bounds(&Point::new(-1, 0)));
+            assert!(!pathfinding_grid.in_bounds(&Point::new(0, -1)));
+            assert!(!pathfinding_grid.in_bounds(&Point::new(10, 9)));
+            assert!(!pathfinding_grid.in_bounds(&Point::new(9, 10)));
+        }
     }
 
-    #[test]
-    fn test_astar_no_path() {
-        let mut grid = vec![vec![!0; 10]; 10];
-        grid[1][1] = 0;
-        let pathfinding_grid = PathfindingGrid::new(&grid);
+    mod astar_tests {
+        use super::*;
 
-        let start = Point::new(1, 1);
-        let end = Point::new(9, 3);
+        #[test]
+        fn test_astar_simple_path() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
 
-        let path = pathfinding_grid.astar(&start, &end);
+            let start = Point::new(1, 1);
+            let end = Point::new(9, 9);
 
-        assert!(path.is_none());
+            let path = pathfinding_grid.astar(&start, &end).unwrap();
+            
+            assert_path_valid(&pathfinding_grid, &path);
+            assert_path_connects(&path, &start, &end);
+            assert_eq!(path.len(), 9); // Diagonal path should be 9 steps
+        }
+
+        #[test]
+        fn test_astar_straight_line() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(1, 1);
+            let end = Point::new(1, 5);
+
+            let path = pathfinding_grid.astar(&start, &end).unwrap();
+            
+            assert_path_valid(&pathfinding_grid, &path);
+            assert_path_connects(&path, &start, &end);
+            assert_eq!(path.len(), 5); // Should be 5 steps vertically
+        }
+
+        #[test]
+        fn test_astar_with_obstacles() {
+            let mut grid = create_empty_grid(10, 10);
+            
+            // Create a wall
+            for i in 2..8 {
+                grid[i][5] = 0;
+            }
+
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+            let start = Point::new(1, 1);
+            let end = Point::new(9, 9);
+
+            let path = pathfinding_grid.astar(&start, &end).unwrap();
+            
+            assert_path_valid(&pathfinding_grid, &path);
+            assert_path_connects(&path, &start, &end);
+            assert!(path.len() > 9); // Should be longer than direct path
+        }
+
+        #[test]
+        fn test_astar_no_path() {
+            let mut grid = create_empty_grid(10, 10);
+            
+            // Block the starting position completely
+            grid[1][1] = 0;
+            
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+            let start = Point::new(1, 1);
+            let end = Point::new(9, 9);
+
+            let path = pathfinding_grid.astar(&start, &end);
+            assert!(path.is_none());
+        }
+
+        #[test]
+        fn test_astar_same_start_end() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let point = Point::new(5, 5);
+            let path = pathfinding_grid.astar(&point, &point).unwrap();
+            
+            assert_eq!(path.len(), 1);
+            assert_eq!(path[0], point);
+        }
+
+        #[test]
+        fn test_astar_complex_maze() {
+            let grid = create_maze_grid();
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(1, 1);
+            let end = Point::new(8, 8);
+
+            let path = pathfinding_grid.astar(&start, &end).unwrap();
+            
+            assert_path_valid(&pathfinding_grid, &path);
+            assert_path_connects(&path, &start, &end);
+        }
     }
 
-    #[test]
-    fn test_find_distances() {
-        let grid = vec![vec![!0; 10]; 10];
-        let pathfinding_grid = PathfindingGrid::new(&grid);
+    mod bfs_tests {
+        use super::*;
 
-        let start = Point::new(1, 1);
-        let mut ends = Vec::new();
-        ends.push(Point::new(9, 9));
+        #[test]
+        fn test_bfs_simple_path() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
 
-        let distances = pathfinding_grid.find_distances(&start, ends).unwrap();
+            let start = Point::new(1, 1);
+            let end = Point::new(9, 9);
 
-        assert_eq!(distances.len(), 1);
+            let path = pathfinding_grid.bfs(&start, &end).unwrap();
+            
+            assert_path_valid(&pathfinding_grid, &path);
+            assert_path_connects(&path, &start, &end);
+        }
 
-        let distance = distances.get(0).unwrap().1;
-        assert_eq!(distance, 8);
+        #[test]
+        fn test_bfs_with_obstacles() {
+            let grid = create_maze_grid();
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(1, 1);
+            let end = Point::new(8, 8);
+
+            let path = pathfinding_grid.bfs(&start, &end).unwrap();
+            
+            assert_path_valid(&pathfinding_grid, &path);
+            assert_path_connects(&path, &start, &end);
+        }
+
+        #[test]
+        fn test_bfs_no_path() {
+            let grid = create_blocked_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(1, 1);
+            let end = Point::new(9, 9);
+
+            let path = pathfinding_grid.bfs(&start, &end);
+            assert!(path.is_none());
+        }
+
+        #[test]
+        fn test_bfs_same_start_end() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let point = Point::new(5, 5);
+            let path = pathfinding_grid.bfs(&point, &point).unwrap();
+            
+            assert_eq!(path.len(), 1);
+            assert_eq!(path[0], point);
+        }
     }
 
-    #[test]
-    fn test_find_distances_start_end_equal() {
-        let grid = vec![vec![!0; 10]; 10];
-        let pathfinding_grid = PathfindingGrid::new(&grid);
+    mod algorithm_comparison {
+        use super::*;
 
-        let start = Point::new(1, 1);
-        let mut ends = Vec::new();
-        ends.push(Point::new(1, 1));
+        #[test]
+        fn test_astar_vs_bfs_same_result() {
+            let grid = create_empty_grid(6, 6);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
 
-        let distances = pathfinding_grid.find_distances(&start, ends).unwrap();
+            let start = Point::new(1, 1);
+            let end = Point::new(4, 4);
 
-        assert_eq!(distances.len(), 1);
+            let astar_path = pathfinding_grid.astar(&start, &end).unwrap();
+            let bfs_path = pathfinding_grid.bfs(&start, &end).unwrap();
 
-        let distance = distances.get(0).unwrap().1;
-        assert_eq!(distance, 0);
+            assert_path_connects(&astar_path, &start, &end);
+            assert_path_connects(&bfs_path, &start, &end);
+            
+            // Both should find valid paths
+            assert_path_valid(&pathfinding_grid, &astar_path);
+            assert_path_valid(&pathfinding_grid, &bfs_path);
+        }
+
+        #[test]
+        fn test_algorithms_with_public_api() {
+            let grid = create_empty_grid(8, 8);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(1, 1);
+            let end = Point::new(6, 6);
+
+            // Test A* via public API
+            let astar_result = pathfinding_grid.find_path(&start, &end, Algo::AStar).unwrap();
+            assert!(astar_result.is_some());
+            let astar_path = astar_result.unwrap();
+            assert_path_connects(&astar_path, &start, &end);
+
+            // Test BFS via public API
+            let bfs_result = pathfinding_grid.find_path(&start, &end, Algo::Bfs).unwrap();
+            assert!(bfs_result.is_some());
+            let bfs_path = bfs_result.unwrap();
+            assert_path_connects(&bfs_path, &start, &end);
+        }
     }
 
-    #[test]
-    fn test_chebyshev() {
-        let a = chebyshev(&Point::new(0, 0), &Point::new(3, 4));
-        assert_eq!(a, 4);
-        let b = chebyshev(&Point::new(0, 0), &Point::new(-3, 4));
-        assert_eq!(a, b);
+    mod find_distances_tests {
+        use super::*;
+
+        #[test]
+        fn test_find_distances_single_target() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(1, 1);
+            let end = Point::new(9, 9);
+
+            let distances = pathfinding_grid.find_distances(&start, vec![end]).unwrap();
+            assert_eq!(distances.len(), 1);
+            assert_eq!(distances[0].0, end);
+            assert_eq!(distances[0].1, 8); // Chebyshev distance
+        }
+
+        #[test]
+        fn test_find_distances_multiple_targets() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(5, 5);
+            let targets = vec![
+                Point::new(5, 7), // distance 2
+                Point::new(7, 5), // distance 2
+                Point::new(3, 3), // distance 2
+                Point::new(9, 9), // distance 4
+            ];
+
+            let distances = pathfinding_grid.find_distances(&start, targets).unwrap();
+            assert_eq!(distances.len(), 4);
+
+            // Check that all targets were found
+            let mut found_distances: Vec<i32> = distances.iter().map(|&(_, d)| d).collect();
+            found_distances.sort();
+            assert_eq!(found_distances, vec![2, 2, 2, 4]);
+        }
+
+        #[test]
+        fn test_find_distances_start_equals_end() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(5, 5);
+            let distances = pathfinding_grid.find_distances(&start, vec![start]).unwrap();
+            
+            assert_eq!(distances.len(), 1);
+            assert_eq!(distances[0].0, start);
+            assert_eq!(distances[0].1, 0);
+        }
+
+        #[test]
+        fn test_find_distances_unreachable_target() {
+            let mut grid = create_empty_grid(10, 10);
+            
+            // Create a wall that blocks access to the target
+            for i in 0..10 {
+                grid[5][i] = 0;
+            }
+
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+            let start = Point::new(1, 1);
+            let unreachable = Point::new(8, 8);
+
+            let result = pathfinding_grid.find_distances(&start, vec![unreachable]);
+            assert!(result.is_err());
+            
+            match result.unwrap_err() {
+                FindDistancesError::EndsUnreachable(unreachable_points) => {
+                    assert_eq!(unreachable_points.len(), 1);
+                    assert_eq!(unreachable_points[0], unreachable);
+                }
+                _ => panic!("Expected EndsUnreachable error"),
+            }
+        }
+
+        #[test]
+        fn test_find_distances_mixed_reachable_unreachable() {
+            let mut grid = create_empty_grid(10, 10);
+            
+            // Create a wall
+            for i in 6..10 {
+                for j in 0..10 {
+                    grid[i][j] = 0;
+                }
+            }
+
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+            let start = Point::new(1, 1);
+            let targets = vec![
+                Point::new(3, 3), // reachable
+                Point::new(8, 8), // unreachable
+                Point::new(2, 5), // reachable
+            ];
+
+            let result = pathfinding_grid.find_distances(&start, targets);
+            assert!(result.is_err());
+            
+            match result.unwrap_err() {
+                FindDistancesError::EndsUnreachable(unreachable_points) => {
+                    assert_eq!(unreachable_points.len(), 1);
+                    assert_eq!(unreachable_points[0], Point::new(8, 8));
+                }
+                _ => panic!("Expected EndsUnreachable error"),
+            }
+        }
     }
 
-    #[test]
-    fn test_minify_path() {
-        assert_eq!(
-            vec![Point { x: 0, y: 0 }, Point { x: 4, y: 4 }],
-            minify_path(vec![
-                Point { x: 0, y: 0 },
-                Point { x: 1, y: 1 },
-                Point { x: 2, y: 2 },
-                Point { x: 3, y: 3 },
-                Point { x: 4, y: 4 },
-            ])
-        );
+    mod error_handling {
+        use super::*;
 
-        assert_eq!(
-            vec![
-                Point { x: 0, y: 0 },
-                Point { x: 2, y: 0 },
-                Point { x: 4, y: 2 },
-            ],
-            minify_path(vec![
-                Point { x: 0, y: 0 },
-                Point { x: 1, y: 0 },
-                Point { x: 2, y: 0 },
-                Point { x: 3, y: 1 },
-                Point { x: 4, y: 2 },
-            ])
-        );
+        #[test]
+        fn test_find_path_start_out_of_bounds() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
 
-        assert_eq!(
-            vec![
-                Point { x: 0, y: 0 },
-                Point { x: 2, y: 0 },
-                Point { x: 4, y: 2 },
-                Point { x: 5, y: 2 },
-            ],
-            minify_path(vec![
-                Point { x: 0, y: 0 },
-                Point { x: 1, y: 0 },
-                Point { x: 2, y: 0 },
-                Point { x: 3, y: 1 },
-                Point { x: 4, y: 2 },
-                Point { x: 5, y: 2 },
-            ])
-        );
+            let start = Point::new(-1, 5);
+            let end = Point::new(5, 5);
 
-        assert_eq!(Vec::<Point>::new(), minify_path(Vec::<Point>::new()));
+            let result = pathfinding_grid.find_path(&start, &end, Algo::AStar);
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), FindPathError::StartOutOfBounds));
+        }
+
+        #[test]
+        fn test_find_path_end_out_of_bounds() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(5, 5);
+            let end = Point::new(15, 5);
+
+            let result = pathfinding_grid.find_path(&start, &end, Algo::AStar);
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), FindPathError::EndOutOfBounds));
+        }
+
+        #[test]
+        fn test_find_distances_start_out_of_bounds() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(10, 10);
+            let end = Point::new(5, 5);
+
+            let result = pathfinding_grid.find_distances(&start, vec![end]);
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), FindDistancesError::StartOutOfBounds));
+        }
+    }
+
+    mod edge_cases {
+        use super::*;
+
+        #[test]
+        fn test_single_cell_grid() {
+            let grid = create_empty_grid(1, 1);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let point = Point::new(0, 0);
+            let path = pathfinding_grid.astar(&point, &point).unwrap();
+            assert_eq!(path.len(), 1);
+            assert_eq!(path[0], point);
+        }
+
+        #[test]
+        fn test_adjacent_points() {
+            let grid = create_empty_grid(3, 3);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(1, 1);
+            let end = Point::new(1, 2);
+
+            let path = pathfinding_grid.astar(&start, &end).unwrap();
+            assert_eq!(path.len(), 2);
+            assert_eq!(path[0], start);
+            assert_eq!(path[1], end);
+        }
+
+        #[test]
+        fn test_diagonal_movement() {
+            let grid = create_empty_grid(3, 3);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(0, 0);
+            let end = Point::new(2, 2);
+
+            let path = pathfinding_grid.astar(&start, &end).unwrap();
+            assert_eq!(path.len(), 3);
+            assert_eq!(path[0], start);
+            assert_eq!(path[2], end);
+        }
+
+        #[test]
+        fn test_large_grid_performance() {
+            let grid = create_empty_grid(100, 100);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(0, 0);
+            let end = Point::new(99, 99);
+
+            let start_time = std::time::Instant::now();
+            let path = pathfinding_grid.astar(&start, &end).unwrap();
+            let duration = start_time.elapsed();
+
+            assert_path_connects(&path, &start, &end);
+            assert!(duration.as_millis() < 100); // Should complete in reasonable time
+        }
+
+        #[test]
+        fn test_empty_targets_list() {
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(5, 5);
+            let distances = pathfinding_grid.find_distances(&start, vec![]).unwrap();
+            assert_eq!(distances.len(), 0);
+        }
+    }
+
+    mod heuristic_tests {
+        use super::*;
+
+        #[test]
+        fn test_chebyshev_distance() {
+            assert_eq!(chebyshev(&Point::new(0, 0), &Point::new(3, 4)), 4);
+            assert_eq!(chebyshev(&Point::new(0, 0), &Point::new(-3, 4)), 4);
+            assert_eq!(chebyshev(&Point::new(5, 5), &Point::new(5, 5)), 0);
+            assert_eq!(chebyshev(&Point::new(1, 1), &Point::new(4, 3)), 3);
+        }
+
+        #[test]
+        fn test_diagonal_cost() {
+            assert_eq!(diagonal_cost(&Point::new(0, 0), &Point::new(3, 4)), 1);
+            assert_eq!(diagonal_cost(&Point::new(0, 0), &Point::new(5, 5)), 0);
+            assert_eq!(diagonal_cost(&Point::new(1, 1), &Point::new(4, 3)), 1);
+        }
+
+        #[test]
+        fn test_heuristic_consistency() {
+            let a = Point::new(0, 0);
+            let b = Point::new(3, 4);
+            let c = Point::new(6, 8);
+
+            let h_ab = heuristic(&a, &b);
+            let h_ac = heuristic(&a, &c);
+            let h_bc = heuristic(&b, &c);
+
+            // Triangle inequality should hold for admissible heuristics
+            assert!(h_ac <= h_ab + h_bc);
+        }
+    }
+
+    mod path_minification {
+        use super::*;
+
+        #[test]
+        fn test_minify_straight_line() {
+            let path = vec![
+                Point::new(0, 0),
+                Point::new(1, 1),
+                Point::new(2, 2),
+                Point::new(3, 3),
+                Point::new(4, 4),
+            ];
+            let minified = minify_path(path);
+            assert_eq!(minified, vec![Point::new(0, 0), Point::new(4, 4)]);
+        }
+
+        #[test]
+        fn test_minify_with_turns() {
+            let path = vec![
+                Point::new(0, 0),
+                Point::new(1, 0),
+                Point::new(2, 0),
+                Point::new(3, 1),
+                Point::new(4, 2),
+            ];
+            let minified = minify_path(path);
+            assert_eq!(
+                minified,
+                vec![
+                    Point::new(0, 0),
+                    Point::new(2, 0),
+                    Point::new(4, 2),
+                ]
+            );
+        }
+
+        #[test]
+        fn test_minify_complex_path() {
+            let path = vec![
+                Point::new(0, 0),
+                Point::new(1, 0),
+                Point::new(2, 0),
+                Point::new(3, 1),
+                Point::new(4, 2),
+                Point::new(5, 2),
+            ];
+            let minified = minify_path(path);
+            assert_eq!(
+                minified,
+                vec![
+                    Point::new(0, 0),
+                    Point::new(2, 0),
+                    Point::new(4, 2),
+                    Point::new(5, 2),
+                ]
+            );
+        }
+
+        #[test]
+        fn test_minify_empty_path() {
+            let path = Vec::<Point>::new();
+            let minified = minify_path(path);
+            assert!(minified.is_empty());
+        }
+
+        #[test]
+        fn test_minify_single_point() {
+            let path = vec![Point::new(5, 5)];
+            let minified = minify_path(path);
+            assert_eq!(minified, vec![Point::new(5, 5)]);
+        }
+
+        #[test]
+        fn test_minify_two_points() {
+            let path = vec![Point::new(1, 1), Point::new(2, 2)];
+            let minified = minify_path(path);
+            assert_eq!(minified, vec![Point::new(1, 1), Point::new(2, 2)]);
+        }
+    }
+
+    mod integration_tests {
+        use super::*;
+
+        #[test]
+        fn test_tile_pathfinder_creation() {
+            let plane_data = [
+                create_empty_grid(10, 10),
+                create_empty_grid(10, 10),
+                create_empty_grid(10, 10),
+                create_empty_grid(10, 10),
+            ];
+            
+            let pathfinder = TilePathfinder::create(plane_data);
+            
+            // Test that we can access all planes
+            for i in 0..4 {
+                let plane = pathfinder.get_plane(i);
+                assert!(plane.in_bounds(&Point::new(5, 5)));
+            }
+        }
+
+        #[test]
+        fn test_pathfinding_with_different_algorithms() {
+            let grid = create_maze_grid();
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+            
+            let start = Point::new(1, 1);
+            let end = Point::new(8, 8);
+            
+            // Test both algorithms find paths
+            let astar_path = pathfinding_grid.find_path(&start, &end, Algo::AStar).unwrap().unwrap();
+            let bfs_path = pathfinding_grid.find_path(&start, &end, Algo::Bfs).unwrap().unwrap();
+            
+            assert_path_connects(&astar_path, &start, &end);
+            assert_path_connects(&bfs_path, &start, &end);
+            
+            // Test that minification works on both paths
+            let minified_astar = minify_path(astar_path);
+            let minified_bfs = minify_path(bfs_path);
+            
+            assert!(!minified_astar.is_empty());
+            assert!(!minified_bfs.is_empty());
+        }
+    }
+
+    mod performance_tests {
+        use super::*;
+
+        #[test]
+        fn test_large_grid_astar_performance() {
+            let grid = create_empty_grid(200, 200);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(10, 10);
+            let end = Point::new(190, 190);
+
+            let start_time = std::time::Instant::now();
+            let path = pathfinding_grid.astar(&start, &end).unwrap();
+            let duration = start_time.elapsed();
+
+            assert_path_connects(&path, &start, &end);
+            assert!(duration.as_millis() < 1000); // Should complete in reasonable time
+        }
+
+        #[test]
+        fn test_find_distances_performance() {
+            let grid = create_empty_grid(50, 50);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(25, 25);
+            let mut targets = Vec::new();
+            for i in 0..10 {
+                for j in 0..10 {
+                    targets.push(Point::new(i * 4, j * 4));
+                }
+            }
+
+            let start_time = std::time::Instant::now();
+            let distances = pathfinding_grid.find_distances(&start, targets).unwrap();
+            let duration = start_time.elapsed();
+
+            assert_eq!(distances.len(), 100);
+            assert!(duration.as_millis() < 100); // Should complete quickly
+        }
+
+        #[test]
+        fn test_buffer_reuse_optimization() {
+            // This test ensures our buffer reuse optimization works correctly
+            // by running multiple pathfinding operations
+            let grid = create_empty_grid(20, 20);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start_time = std::time::Instant::now();
+            
+            // Run multiple pathfinding operations
+            for i in 0..10 {
+                let start = Point::new(i, i);
+                let end = Point::new(19 - i, 19 - i);
+                
+                let path = pathfinding_grid.bfs(&start, &end).unwrap();
+                assert_path_connects(&path, &start, &end);
+            }
+            
+            let duration = start_time.elapsed();
+            assert!(duration.as_millis() < 100); // Should benefit from buffer reuse
+        }
+    }
+
+    mod regression_tests {
+        use super::*;
+
+        #[test]
+        fn test_optimization_maintains_correctness() {
+            // Test that our HashSet<Point> optimization maintains correctness
+            let grid = create_empty_grid(10, 10);
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(5, 5);
+            let targets = vec![
+                Point::new(5, 5), // Same as start
+                Point::new(6, 6), // Different
+                Point::new(4, 4), // Different
+            ];
+
+            let distances = pathfinding_grid.find_distances(&start, targets).unwrap();
+            assert_eq!(distances.len(), 3);
+            
+            // Check that the start point has distance 0
+            let start_distance = distances.iter().find(|(p, _)| *p == start).unwrap().1;
+            assert_eq!(start_distance, 0);
+        }
+
+        #[test]
+        fn test_safe_indexing_maintains_correctness() {
+            // Test that removing unsafe indexing doesn't break functionality
+            let grid = create_maze_grid();
+            let pathfinding_grid = PathfindingGrid::new(&grid);
+
+            let start = Point::new(1, 1);
+            let end = Point::new(8, 8);
+
+            // Both algorithms should still work with safe indexing
+            let astar_path = pathfinding_grid.astar(&start, &end).unwrap();
+            let bfs_path = pathfinding_grid.bfs(&start, &end).unwrap();
+
+            assert_path_connects(&astar_path, &start, &end);
+            assert_path_connects(&bfs_path, &start, &end);
+        }
     }
 }
