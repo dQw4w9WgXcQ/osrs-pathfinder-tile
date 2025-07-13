@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 use zip::ZipArchive;
 
 const PLANES_SIZE: usize = 4;
+// OSRS-specific constants: diagonal movement has same cost as straight movement
+const MOVEMENT_COST: i32 = 10000; // All movements (diagonal, horizontal, vertical) have same cost in OSRS
+const HEURISTIC_WEIGHT: i32 = 10000; // Reduced from 100_000 to prevent overflow
 
 #[derive(new)]
 pub struct TilePathfinder {
@@ -81,6 +84,8 @@ pub enum Algo {
     AStar,
     #[serde(rename = "BFS")]
     Bfs,
+    #[serde(rename = "JPS")]
+    Jps, // Jump Point Search
 }
 
 pub struct PathfindingGrid {
@@ -112,8 +117,9 @@ impl PathfindingGrid {
         }
 
         let path = match algo {
-            Algo::AStar => self.astar(start, end),
+            Algo::AStar => self.astar_optimized(start, end),
             Algo::Bfs => self.bfs(start, end),
+            Algo::Jps => self.jump_point_search(start, end),
         };
 
         Ok(path)
@@ -182,6 +188,116 @@ impl PathfindingGrid {
         Ok(distances)
     }
 
+    /// Optimized A* implementation with better efficiency
+    fn astar_optimized(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
+        if start == end {
+            return Some(vec![*start]);
+        }
+
+        // Use Vec with sorting instead of BinaryHeap for better performance on small sets
+        let mut open_set = Vec::new();
+        let mut closed_set = HashSet::new();
+        
+        // Combined storage for g_costs and parent tracking
+        let mut node_data = HashMap::new();
+        
+        // Initialize start node
+        let start_h = heuristic_optimized(start, end);
+        let start_node = AStarNodeOptimized::new(*start, start_h, 0, start_h);
+        open_set.push(start_node);
+        node_data.insert(*start, NodeData::new(0, None));
+
+        while !open_set.is_empty() {
+            // Find node with lowest f_cost (manual min-heap behavior)
+            let current_idx = open_set.iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| a.cmp(b))
+                .map(|(idx, _)| idx)
+                .unwrap();
+            
+            let current = open_set.swap_remove(current_idx);
+
+            // Early termination
+            if current.point == *end {
+                return Some(self.reconstruct_path_optimized(&node_data, *start, *end));
+            }
+
+            closed_set.insert(current.point);
+
+            // Explore neighbors
+            self.explore_neighbors_optimized(
+                &current, 
+                end, 
+                &mut open_set, 
+                &closed_set, 
+                &mut node_data
+            );
+        }
+
+        None
+    }
+
+    fn explore_neighbors_optimized(
+        &self,
+        current: &AStarNodeOptimized,
+        end: &Point,
+        open_set: &mut Vec<AStarNodeOptimized>,
+        closed_set: &HashSet<Point>,
+        node_data: &mut HashMap<Point, NodeData>,
+    ) {
+        let x = current.point.x as usize;
+        let y = current.point.y as usize;
+        let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
+
+        for dir in DIRECTIONS {
+            if config & dir.flag == 0 {
+                continue;
+            }
+
+            let neighbor = Point::new(current.point.x + dir.dx, current.point.y + dir.dy);
+
+            if closed_set.contains(&neighbor) {
+                continue;
+            }
+
+            // In OSRS, all movements (diagonal, horizontal, vertical) have the same cost
+            let tentative_g = current.g_cost + MOVEMENT_COST;
+
+            let should_update = match node_data.get(&neighbor) {
+                Some(existing) => tentative_g < existing.g_cost,
+                None => true,
+            };
+
+            if should_update {
+                let h_cost = heuristic_optimized(&neighbor, end);
+                let f_cost = tentative_g + h_cost;
+                
+                // Update node data
+                node_data.insert(neighbor, NodeData::new(tentative_g, Some(current.point)));
+                
+                // Remove old entry from open set if it exists
+                open_set.retain(|node| node.point != neighbor);
+                
+                // Add new entry
+                open_set.push(AStarNodeOptimized::new(neighbor, f_cost, tentative_g, h_cost));
+            }
+        }
+    }
+
+    fn reconstruct_path_optimized(&self, node_data: &HashMap<Point, NodeData>, start: Point, end: Point) -> Vec<Point> {
+        let mut path = Vec::new();
+        let mut current = end;
+        
+        while current != start {
+            path.push(current);
+            current = node_data.get(&current).unwrap().parent.unwrap();
+        }
+        path.push(start);
+        path.reverse();
+        path
+    }
+
+    // Keep the original A* for backward compatibility
     fn astar(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
         let mut open = BinaryHeap::new();
         let mut closed = HashSet::new();
@@ -246,12 +362,8 @@ impl PathfindingGrid {
                 debug!("adj:{},{}", adj_x, adj_y);
 
                 let adj = Point::new(adj_x, adj_y);
-                let diag_cost = if (x as i32 - adj_x).abs() + (y as i32 - adj_y).abs() == 2 {
-                    1
-                } else {
-                    0
-                };
-                let next_g_cost = curr.g_cost + 100_000 + diag_cost;
+                // In OSRS, all movements have the same cost regardless of direction
+                let next_g_cost = curr.g_cost + MOVEMENT_COST;
 
                 //also functions as a check for if adj is already closed.
                 let old_g_cost = g_costs.get(&adj);
@@ -320,6 +432,231 @@ impl PathfindingGrid {
         }
 
         None
+    }
+
+    /// Jump Point Search (JPS) - Advanced optimization for grid-based pathfinding
+    /// Reduces the number of nodes explored by "jumping" over intermediate nodes
+    fn jump_point_search(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
+        if start == end {
+            return Some(vec![*start]);
+        }
+
+        let mut open_set = Vec::new();
+        let mut closed_set = HashSet::new();
+        let mut node_data = HashMap::new();
+
+        let start_h = heuristic_optimized(start, end);
+        let start_node = AStarNodeOptimized::new(*start, start_h, 0, start_h);
+        open_set.push(start_node);
+        node_data.insert(*start, NodeData::new(0, None));
+
+        while !open_set.is_empty() {
+            let current_idx = open_set.iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| a.cmp(b))
+                .map(|(idx, _)| idx)
+                .unwrap();
+            
+            let current = open_set.swap_remove(current_idx);
+
+            if current.point == *end {
+                return Some(self.reconstruct_path_optimized(&node_data, *start, *end));
+            }
+
+            closed_set.insert(current.point);
+
+            // Get the parent to determine the direction we came from
+            let parent = node_data.get(&current.point).and_then(|data| data.parent);
+            
+            // Get forced neighbors and natural neighbors
+            let neighbors = self.get_jump_neighbors(&current.point, parent);
+
+            for neighbor in neighbors {
+                if closed_set.contains(&neighbor) {
+                    continue;
+                }
+
+                // Jump to the next jump point
+                if let Some(jump_point) = self.jump(&current.point, &neighbor, end) {
+                    let distance = self.distance(&current.point, &jump_point);
+                    let tentative_g = current.g_cost + distance;
+
+                    let should_update = match node_data.get(&jump_point) {
+                        Some(existing) => tentative_g < existing.g_cost,
+                        None => true,
+                    };
+
+                    if should_update {
+                        let h_cost = heuristic_optimized(&jump_point, end);
+                        let f_cost = tentative_g + h_cost;
+
+                        node_data.insert(jump_point, NodeData::new(tentative_g, Some(current.point)));
+                        open_set.retain(|node| node.point != jump_point);
+                        open_set.push(AStarNodeOptimized::new(jump_point, f_cost, tentative_g, h_cost));
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Get jump neighbors based on the current position and parent
+    fn get_jump_neighbors(&self, current: &Point, parent: Option<Point>) -> Vec<Point> {
+        let mut neighbors = Vec::new();
+
+        if let Some(parent) = parent {
+            let dx = (current.x - parent.x).signum();
+            let dy = (current.y - parent.y).signum();
+
+            if dx != 0 && dy != 0 {
+                // Diagonal movement
+                self.add_diagonal_jump_neighbors(current, dx, dy, &mut neighbors);
+            } else {
+                // Straight movement
+                self.add_straight_jump_neighbors(current, dx, dy, &mut neighbors);
+            }
+        } else {
+            // No parent, explore all directions
+            for dir in &DIRECTIONS {
+                let neighbor = Point::new(current.x + dir.dx, current.y + dir.dy);
+                if self.is_walkable(&neighbor) {
+                    neighbors.push(neighbor);
+                }
+            }
+        }
+
+        neighbors
+    }
+
+    fn add_diagonal_jump_neighbors(&self, current: &Point, dx: i32, dy: i32, neighbors: &mut Vec<Point>) {
+        // Straight components
+        if self.is_walkable(&Point::new(current.x + dx, current.y)) {
+            neighbors.push(Point::new(current.x + dx, current.y));
+        }
+        if self.is_walkable(&Point::new(current.x, current.y + dy)) {
+            neighbors.push(Point::new(current.x, current.y + dy));
+        }
+
+        // Diagonal
+        if self.is_walkable(&Point::new(current.x + dx, current.y + dy)) {
+            neighbors.push(Point::new(current.x + dx, current.y + dy));
+        }
+
+        // Forced neighbors
+        if !self.is_walkable(&Point::new(current.x - dx, current.y)) && 
+           self.is_walkable(&Point::new(current.x - dx, current.y + dy)) {
+            neighbors.push(Point::new(current.x - dx, current.y + dy));
+        }
+        if !self.is_walkable(&Point::new(current.x, current.y - dy)) && 
+           self.is_walkable(&Point::new(current.x + dx, current.y - dy)) {
+            neighbors.push(Point::new(current.x + dx, current.y - dy));
+        }
+    }
+
+    fn add_straight_jump_neighbors(&self, current: &Point, dx: i32, dy: i32, neighbors: &mut Vec<Point>) {
+        if dx != 0 {
+            // Horizontal movement
+            if self.is_walkable(&Point::new(current.x + dx, current.y)) {
+                neighbors.push(Point::new(current.x + dx, current.y));
+            }
+            
+            // Forced neighbors
+            if !self.is_walkable(&Point::new(current.x, current.y + 1)) && 
+               self.is_walkable(&Point::new(current.x + dx, current.y + 1)) {
+                neighbors.push(Point::new(current.x + dx, current.y + 1));
+            }
+            if !self.is_walkable(&Point::new(current.x, current.y - 1)) && 
+               self.is_walkable(&Point::new(current.x + dx, current.y - 1)) {
+                neighbors.push(Point::new(current.x + dx, current.y - 1));
+            }
+        } else {
+            // Vertical movement
+            if self.is_walkable(&Point::new(current.x, current.y + dy)) {
+                neighbors.push(Point::new(current.x, current.y + dy));
+            }
+            
+            // Forced neighbors
+            if !self.is_walkable(&Point::new(current.x + 1, current.y)) && 
+               self.is_walkable(&Point::new(current.x + 1, current.y + dy)) {
+                neighbors.push(Point::new(current.x + 1, current.y + dy));
+            }
+            if !self.is_walkable(&Point::new(current.x - 1, current.y)) && 
+               self.is_walkable(&Point::new(current.x - 1, current.y + dy)) {
+                neighbors.push(Point::new(current.x - 1, current.y + dy));
+            }
+        }
+    }
+
+    /// Jump from current position towards direction until a jump point is found
+    fn jump(&self, current: &Point, direction: &Point, goal: &Point) -> Option<Point> {
+        let dx = direction.x - current.x;
+        let dy = direction.y - current.y;
+        let next = Point::new(current.x + dx, current.y + dy);
+
+        if !self.is_walkable(&next) {
+            return None;
+        }
+
+        if next == *goal {
+            return Some(next);
+        }
+
+        // Check for forced neighbors
+        if self.has_forced_neighbors(&next, dx, dy) {
+            return Some(next);
+        }
+
+        // Diagonal movement: check horizontal and vertical jumps
+        if dx != 0 && dy != 0 {
+            if self.jump(&next, &Point::new(next.x + dx, next.y), goal).is_some() ||
+               self.jump(&next, &Point::new(next.x, next.y + dy), goal).is_some() {
+                return Some(next);
+            }
+        }
+
+        // Recursively jump in the same direction
+        self.jump(&next, direction, goal)
+    }
+
+    fn has_forced_neighbors(&self, point: &Point, dx: i32, dy: i32) -> bool {
+        if dx != 0 && dy != 0 {
+            // Diagonal movement
+            (!self.is_walkable(&Point::new(point.x - dx, point.y)) && 
+             self.is_walkable(&Point::new(point.x - dx, point.y + dy))) ||
+            (!self.is_walkable(&Point::new(point.x, point.y - dy)) && 
+             self.is_walkable(&Point::new(point.x + dx, point.y - dy)))
+        } else if dx != 0 {
+            // Horizontal movement
+            (!self.is_walkable(&Point::new(point.x, point.y + 1)) && 
+             self.is_walkable(&Point::new(point.x + dx, point.y + 1))) ||
+            (!self.is_walkable(&Point::new(point.x, point.y - 1)) && 
+             self.is_walkable(&Point::new(point.x + dx, point.y - 1)))
+        } else {
+            // Vertical movement
+            (!self.is_walkable(&Point::new(point.x + 1, point.y)) && 
+             self.is_walkable(&Point::new(point.x + 1, point.y + dy))) ||
+            (!self.is_walkable(&Point::new(point.x - 1, point.y)) && 
+             self.is_walkable(&Point::new(point.x - 1, point.y + dy)))
+        }
+    }
+
+    fn is_walkable(&self, point: &Point) -> bool {
+        if !self.in_bounds(point) {
+            return false;
+        }
+        let x = point.x as usize;
+        let y = point.y as usize;
+        let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
+        config != 0
+    }
+
+    fn distance(&self, from: &Point, to: &Point) -> i32 {
+        let dx = (to.x - from.x).abs();
+        let dy = (to.y - from.y).abs();
+        // In OSRS, all movements have the same cost, so use Chebyshev distance
+        let chebyshev_distance = std::cmp::max(dx, dy);
+        chebyshev_distance * MOVEMENT_COST
     }
 
     fn pad_grid(grid: &mut Vec<Vec<u8>>) {
@@ -401,6 +738,51 @@ impl Display for Point {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct AStarNodeOptimized {
+    point: Point,
+    f_cost: i32,
+    g_cost: i32,
+    h_cost: i32,
+}
+
+impl AStarNodeOptimized {
+    fn new(point: Point, f_cost: i32, g_cost: i32, h_cost: i32) -> Self {
+        Self { point, f_cost, g_cost, h_cost }
+    }
+}
+
+impl PartialOrd for AStarNodeOptimized {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for AStarNodeOptimized {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Lower f_cost is better
+        match self.f_cost.cmp(&other.f_cost) {
+            std::cmp::Ordering::Equal => {
+                // Tie-breaker: prefer lower h_cost (closer to goal)
+                self.h_cost.cmp(&other.h_cost)
+            }
+            other => other,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct NodeData {
+    g_cost: i32,
+    parent: Option<Point>,
+}
+
+impl NodeData {
+    fn new(g_cost: i32, parent: Option<Point>) -> Self {
+        Self { g_cost, parent }
+    }
+}
+
 #[derive(PartialEq, Eq, new)]
 struct AStarNode {
     point: Point,
@@ -461,38 +843,31 @@ fn chebyshev(a: &Point, b: &Point) -> i32 {
     max(dx, dy)
 }
 
-// fn heuristic(a: &Point, b: &Point) -> i32 {
-//     chebyshev(a, b)
-// }
+/// Optimized heuristic function for OSRS (all movements have same cost)
+fn heuristic_optimized(a: &Point, b: &Point) -> i32 {
+    let dx = (a.x - b.x).abs();
+    let dy = (a.y - b.y).abs();
+    
+    // In OSRS, diagonal movement has same cost as straight movement
+    // So we use Chebyshev distance (max of dx, dy) as heuristic
+    let chebyshev_distance = std::cmp::max(dx, dy);
+    
+    // Scale by movement cost for proper comparison
+    chebyshev_distance * MOVEMENT_COST
+}
 
-//kinda works but not really.
-//a* w/ tiebreak: https://i.imgur.com/u4Lnofu.png
-//bfs: https://i.imgur.com/OQUqiQP.png
-// fn manhattan(a: &Point, b: &Point) -> i32 {
-//     let dx = (a.x - b.x).abs();
-//     let dy = (a.y - b.y).abs();
-//     dx + dy
-// }
-//
-// //manhattan distance is used as a tiebreaker to create nicer paths
-// fn heuristic(a: &Point, b: &Point) -> i32 {
-//     let chebyshev = chebyshev(a, b);
-//     let manhattan = manhattan(a, b);
-//
-//     (chebyshev * 100_000) + manhattan
-// }
+// Original heuristic function for backward compatibility
+fn heuristic(a: &Point, b: &Point) -> i32 {
+    let chebyshev = chebyshev(a, b);
+    let diagonal_cost = diagonal_cost(a, b);
+
+    (chebyshev * HEURISTIC_WEIGHT) + diagonal_cost
+}
 
 fn diagonal_cost(a: &Point, b: &Point) -> i32 {
     let dx = (a.x - b.x).abs();
     let dy = (a.y - b.y).abs();
     (dx - dy).abs()
-}
-//manhattan distance is used as a tiebreaker to create nicer paths
-fn heuristic(a: &Point, b: &Point) -> i32 {
-    let chebyshev = chebyshev(a, b);
-    let diagonal_cost = diagonal_cost(a, b);
-
-    (chebyshev * 100_000) + diagonal_cost
 }
 
 #[cfg(test)]
