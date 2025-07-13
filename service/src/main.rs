@@ -15,13 +15,13 @@ use tower_http::catch_panic;
 
 #[derive(Clone)]
 struct AppState {
-    tile_pathfinder: &'static TilePathfinder,
+    tile_pathfinder: TilePathfinder,
 }
 
 impl AppState {
     fn new(tile_pathfinder: TilePathfinder) -> Self {
         Self {
-            tile_pathfinder: Box::leak(Box::new(tile_pathfinder)),
+            tile_pathfinder,
         }
     }
 }
@@ -75,11 +75,11 @@ async fn find_path(state: State<AppState>, Json(req): Json<FindPathReq>) -> Resp
     let grid = state.tile_pathfinder.get_plane(req.plane as usize);
 
     match grid.find_path(&req.start, &req.end, req.algo.unwrap_or(Algo::AStar)) {
-        Ok(Some(path)) => (
-            StatusCode::OK,
-            Json(FindPathRes::new((path.len() - 1) as i32, minify_path(path))),
-        )
-            .into_response(),
+        Ok(Some(path)) => {
+            let cost = (path.len() - 1) as i32;
+            let minified_path = minify_path(path);
+            (StatusCode::OK, Json(FindPathRes::new(cost, minified_path))).into_response()
+        }
         Ok(None) => (StatusCode::BAD_REQUEST, "No path").into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, format!("{e}")).into_response(),
     }
@@ -108,8 +108,7 @@ async fn find_distances(state: State<AppState>, Json(req): Json<FindDistancesReq
 
     let grid = state.tile_pathfinder.get_plane(req.plane as usize);
 
-    let distances_result = grid.find_distances(&req.start, req.ends);
-    match distances_result {
+    match grid.find_distances(&req.start, req.ends) {
         Ok(distances) => {
             let distances = distances
                 .into_iter()

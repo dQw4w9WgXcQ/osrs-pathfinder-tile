@@ -84,14 +84,42 @@ pub enum Algo {
 }
 
 pub struct PathfindingGrid {
-    grid: Vec<Vec<u8>>,
+    grid: Vec<u8>,
+    width: usize,
+    height: usize,
 }
 
 impl PathfindingGrid {
     pub fn new(grid: Vec<Vec<u8>>) -> Self {
-        let mut grid = grid;
-        Self::pad_grid(&mut grid);
-        Self { grid }
+        let height = grid[0].len();
+        let width = grid.len();
+        
+        // Convert to flat array for better cache locality
+        let mut flat_grid = Vec::with_capacity(width * height);
+        for x in 0..width {
+            for y in 0..height {
+                flat_grid.push(grid[x][y]);
+            }
+        }
+        
+        let mut pathfinding_grid = Self {
+            grid: flat_grid,
+            width,
+            height,
+        };
+        
+        pathfinding_grid.pad_grid();
+        pathfinding_grid
+    }
+
+    #[inline]
+    fn get_config(&self, x: usize, y: usize) -> u8 {
+        self.grid[x * self.height + y]
+    }
+
+    #[inline]
+    fn set_config(&mut self, x: usize, y: usize, config: u8) {
+        self.grid[x * self.height + y] = config;
     }
 
     /// Returns a path inclusive of both start and end.
@@ -132,7 +160,7 @@ impl PathfindingGrid {
 
         let mut ends = ends.iter().collect::<HashSet<&Point>>();
 
-        let mut distances = Vec::new();
+        let mut distances = Vec::with_capacity(ends.len());
 
         let mut frontier = Vec::new();
         frontier.push(*start);
@@ -151,7 +179,7 @@ impl PathfindingGrid {
 
                 let x = point.x as usize;
                 let y = point.y as usize;
-                let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
+                let config = self.get_config(x, y);
                 for dir in DIRECTIONS {
                     if config & dir.flag == 0 {
                         continue;
@@ -183,10 +211,12 @@ impl PathfindingGrid {
     }
 
     fn astar(&self, start: &Point, end: &Point) -> Option<Vec<Point>> {
-        let mut open = BinaryHeap::new();
-        let mut closed = HashSet::new();
-        let mut g_costs = HashMap::new();
-        let mut came_from = HashMap::new();
+        // Pre-allocate with reasonable capacity estimates
+        let estimated_path_length = (end.x - start.x).abs() + (end.y - start.y).abs() + 10;
+        let mut open = BinaryHeap::with_capacity(estimated_path_length as usize);
+        let mut closed = HashSet::with_capacity(estimated_path_length as usize);
+        let mut g_costs = HashMap::with_capacity(estimated_path_length as usize);
+        let mut came_from = HashMap::with_capacity(estimated_path_length as usize);
 
         open.push(AStarNode::create(end, *start, 0));
 
@@ -202,7 +232,8 @@ impl PathfindingGrid {
             if curr.point == *end {
                 debug!("found path");
 
-                let mut path = Vec::new();
+                // Pre-allocate path vector
+                let mut path = Vec::with_capacity(estimated_path_length as usize);
                 let mut curr = curr.point;
                 while curr != *start {
                     debug!("({:?},{:?}),", curr.x, curr.y);
@@ -232,8 +263,12 @@ impl PathfindingGrid {
 
             let x = curr.point.x as usize;
             let y = curr.point.y as usize;
-            let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
+            let config = self.get_config(x, y);
             debug!("config:{}", config);
+            
+            // Pre-calculate diagonal cost check
+            let is_diagonal = |dx: i32, dy: i32| -> bool { dx.abs() + dy.abs() == 2 };
+            
             for dir in DIRECTIONS {
                 if config & dir.flag == 0 {
                     debug!("blocked {}", dir.flag);
@@ -246,21 +281,15 @@ impl PathfindingGrid {
                 debug!("adj:{},{}", adj_x, adj_y);
 
                 let adj = Point::new(adj_x, adj_y);
-                let diag_cost = if (x as i32 - adj_x).abs() + (y as i32 - adj_y).abs() == 2 {
-                    1
-                } else {
-                    0
-                };
+                let diag_cost = if is_diagonal(dir.dx, dir.dy) { 1 } else { 0 };
                 let next_g_cost = curr.g_cost + 100_000 + diag_cost;
 
                 //also functions as a check for if adj is already closed.
-                let old_g_cost = g_costs.get(&adj);
-                if old_g_cost.is_some() {
-                    if next_g_cost >= *old_g_cost.unwrap() {
+                if let Some(&old_g_cost) = g_costs.get(&adj) {
+                    if next_g_cost >= old_g_cost {
                         debug!("already have g_cost");
                         continue;
                     }
-
                     debug!("updating g_cost");
                 }
 
@@ -268,7 +297,6 @@ impl PathfindingGrid {
                 came_from.insert(adj, curr.point);
 
                 let next = AStarNode::create(end, adj, next_g_cost);
-
                 open.push(next);
             }
         }
@@ -279,14 +307,17 @@ impl PathfindingGrid {
             return Some(vec![*start]);
         }
 
-        let mut frontier = VecDeque::new();
-        let mut seen_from = HashMap::new();
+        // Pre-allocate with reasonable capacity estimates
+        let estimated_path_length = (end.x - start.x).abs() + (end.y - start.y).abs() + 10;
+        let mut frontier = VecDeque::with_capacity(estimated_path_length as usize);
+        let mut seen_from = HashMap::with_capacity(estimated_path_length as usize);
 
         frontier.push_back(*start);
         while !frontier.is_empty() {
             let curr = frontier.pop_front().unwrap();
             if curr == *end {
-                let mut path = Vec::new();
+                // Pre-allocate path vector
+                let mut path = Vec::with_capacity(estimated_path_length as usize);
                 let mut curr = curr;
                 while curr != *start {
                     path.push(curr);
@@ -301,7 +332,7 @@ impl PathfindingGrid {
             let x = curr.x as usize;
             let y = curr.y as usize;
 
-            let config = *unsafe { self.grid.get_unchecked(x).get_unchecked(y) };
+            let config = self.get_config(x, y);
 
             for dir in DIRECTIONS {
                 if config & dir.flag == 0 {
@@ -322,23 +353,26 @@ impl PathfindingGrid {
         None
     }
 
-    fn pad_grid(grid: &mut Vec<Vec<u8>>) {
-        let width = grid.len();
-        let height = grid[0].len();
-
+    fn pad_grid(&mut self) {
         let n_flag = N.flag | NE.flag | NW.flag;
         let s_flag = S.flag | SE.flag | SW.flag;
         let e_flag = E.flag | NE.flag | SE.flag;
         let w_flag = W.flag | NW.flag | SW.flag;
 
-        for x in 0..width {
-            grid[x][0] &= !s_flag;
-            grid[x][height - 1] &= !n_flag;
+        for x in 0..self.width {
+            let current_config = self.get_config(x, 0);
+            self.set_config(x, 0, current_config & !s_flag);
+            
+            let current_config = self.get_config(x, self.height - 1);
+            self.set_config(x, self.height - 1, current_config & !n_flag);
         }
 
-        for y in 0..height {
-            grid[0][y] &= !w_flag;
-            grid[width - 1][y] &= !e_flag;
+        for y in 0..self.height {
+            let current_config = self.get_config(0, y);
+            self.set_config(0, y, current_config & !w_flag);
+            
+            let current_config = self.get_config(self.width - 1, y);
+            self.set_config(self.width - 1, y, current_config & !e_flag);
         }
     }
 
@@ -347,7 +381,7 @@ impl PathfindingGrid {
     }
 
     fn xy_in_bounds(&self, x: i32, y: i32) -> bool {
-        x >= 0 && y >= 0 && x < self.grid.len() as i32 && y < self.grid[0].len() as i32
+        x >= 0 && y >= 0 && x < self.width as i32 && y < self.height as i32
     }
 }
 
@@ -356,9 +390,11 @@ pub fn minify_path(path: Vec<Point>) -> Vec<Point> {
         return Vec::new();
     }
 
-    let mut minified = Vec::new();
+    // Pre-allocate with worst-case scenario (no minification possible)
+    let mut minified = Vec::with_capacity(path.len());
     let mut prev_prev = None;
     let mut prev = None;
+    
     for curr in path {
         if prev.is_none() {
             prev = Some(curr);
@@ -372,13 +408,16 @@ pub fn minify_path(path: Vec<Point>) -> Vec<Point> {
             continue;
         }
 
-        let dx = prev.unwrap().x - prev_prev.unwrap().x;
-        let dy = prev.unwrap().y - prev_prev.unwrap().y;
-        let dx2 = curr.x - prev.unwrap().x;
-        let dy2 = curr.y - prev.unwrap().y;
+        let prev_point = prev.unwrap();
+        let prev_prev_point = prev_prev.unwrap();
+        
+        let dx = prev_point.x - prev_prev_point.x;
+        let dy = prev_point.y - prev_prev_point.y;
+        let dx2 = curr.x - prev_point.x;
+        let dy2 = curr.y - prev_point.y;
 
         if dx != dx2 || dy != dy2 {
-            minified.push(prev.unwrap());
+            minified.push(prev_point);
         }
 
         prev_prev = prev;
@@ -455,6 +494,7 @@ const SE: Direction = Direction::new(1 << 6, 1, -1);
 const SW: Direction = Direction::new(1 << 7, -1, -1);
 const DIRECTIONS: [Direction; 8] = [N, S, E, W, NE, NW, SE, SW];
 
+#[inline]
 fn chebyshev(a: &Point, b: &Point) -> i32 {
     let dx = (a.x - b.x).abs();
     let dy = (a.y - b.y).abs();
@@ -482,15 +522,20 @@ fn chebyshev(a: &Point, b: &Point) -> i32 {
 //     (chebyshev * 100_000) + manhattan
 // }
 
+#[inline]
 fn diagonal_cost(a: &Point, b: &Point) -> i32 {
     let dx = (a.x - b.x).abs();
     let dy = (a.y - b.y).abs();
     (dx - dy).abs()
 }
+
 //manhattan distance is used as a tiebreaker to create nicer paths
+#[inline]
 fn heuristic(a: &Point, b: &Point) -> i32 {
-    let chebyshev = chebyshev(a, b);
-    let diagonal_cost = diagonal_cost(a, b);
+    let dx = (a.x - b.x).abs();
+    let dy = (a.y - b.y).abs();
+    let chebyshev = max(dx, dy);
+    let diagonal_cost = (dx - dy).abs();
 
     (chebyshev * 100_000) + diagonal_cost
 }
